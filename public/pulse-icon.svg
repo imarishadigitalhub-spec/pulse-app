@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#172d69"/>
+      <stop offset="1" stop-color="#050b1c"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#55d7ff"/>
+      <stop offset=".55" stop-color="#1687ff"/>
+      <stop offset="1" stop-color="#174cff"/>
+    </linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="12" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect x="12" y="12" width="488" height="488" rx="118" fill="url(#bg)" stroke="#247bff" stroke-width="8"/>
+  <path d="M112 190c0-49 40-89 89-89h122c49 0 89 40 89 89v82c0 49-40 89-89 89h-83l-91 67v-67h-4c-19 0-33-15-33-34z" fill="url(#blue)" filter="url(#glow)"/>
+  <path d="M164 185c0-20 16-36 36-36h126c20 0 36 16 36 36v74c0 20-16 36-36 36H224l-60 45z" fill="#07142e"/>
+  <circle cx="222" cy="222" r="13" fill="#54d7ff"/>
+  <circle cx="264" cy="222" r="13" fill="#54d7ff"/>
+  <circle cx="306" cy="222" r="13" fill="#54d7ff"/>
+</svg>

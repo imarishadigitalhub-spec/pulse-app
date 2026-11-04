@@ -1,0 +1,179 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isFollowedByViewer(uid) {
+      return signedIn()
+        && exists(
+          /databases/$(database)/documents/followRelationships/$(request.auth.uid + '_' + uid)
+        );
+    }
+
+    function followsViewer(uid) {
+      return signedIn()
+        && exists(
+          /databases/$(database)/documents/followRelationships/$(uid + '_' + request.auth.uid)
+        );
+    }
+
+    function isParticipant(conversationId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/conversations/$(conversationId))
+        && request.auth.uid in get(
+          /databases/$(database)/documents/conversations/$(conversationId)
+        ).data.participants;
+    }
+
+
+    // Public directory contains only information intended for discovery.
+    // Private email addresses and phone numbers belong in users/{uid}.
+    match /publicProfiles/{uid} {
+      allow read: if signedIn()
+        && (
+          resource.data.discoverable == true
+          || isOwner(uid)
+          || isFollowedByViewer(uid)
+          || followsViewer(uid)
+        );
+
+      allow create: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.discoverable is bool
+        && request.resource.data.displayName is string
+        && request.resource.data.username is string
+        && request.resource.data.keys().hasOnly([
+          'uid', 'displayName', 'username', 'photoURL',
+          'bio', 'discoverable', 'createdAt', 'updatedAt'
+        ]);
+
+      allow update: if isOwner(uid)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.discoverable is bool
+        && request.resource.data.displayName is string
+        && request.resource.data.username is string
+        && request.resource.data.keys().hasOnly([
+          'uid', 'displayName', 'username', 'photoURL',
+          'bio', 'discoverable', 'createdAt', 'updatedAt'
+        ]);
+
+      allow delete: if isOwner(uid);
+    }
+
+    // Private account information is accessible only to its owner.
+    match /users/{uid} {
+      allow read, create, update, delete: if isOwner(uid);
+
+      match /following/{targetUid} {
+        allow read: if isOwner(uid);
+
+        allow create: if isOwner(uid)
+          && targetUid != uid
+          && request.resource.data.targetUid == targetUid
+          && request.resource.data.keys().hasOnly([
+            'targetUid', 'createdAt'
+          ])
+          && exists(
+            /databases/$(database)/documents/publicProfiles/$(targetUid)
+          )
+          && get(
+            /databases/$(database)/documents/publicProfiles/$(targetUid)
+          ).data.discoverable == true;
+
+        allow delete: if isOwner(uid);
+        allow update: if false;
+      }
+
+      match /devices/{deviceId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // Follow relationships are visible only to their two participants.
+    // The follower can create or remove their own relationship.
+    match /followRelationships/{relationshipId} {
+      allow read: if signedIn()
+        && (
+          request.auth.uid == resource.data.followerUid
+          || request.auth.uid == resource.data.followingUid
+        );
+
+      allow create: if signedIn()
+        && request.resource.data.followerUid == request.auth.uid
+        && request.resource.data.followingUid is string
+        && request.resource.data.followingUid != request.auth.uid
+        && relationshipId == request.auth.uid + '_' + request.resource.data.followingUid
+        && request.resource.data.keys().hasOnly([
+          'followerUid', 'followingUid', 'createdAt'
+        ])
+        && exists(
+          /databases/$(database)/documents/publicProfiles/$(request.resource.data.followingUid)
+        )
+        && get(
+          /databases/$(database)/documents/publicProfiles/$(request.resource.data.followingUid)
+        ).data.discoverable == true;
+
+      allow delete: if signedIn()
+        && request.auth.uid == resource.data.followerUid;
+
+      allow update: if false;
+    }
+
+    // A direct conversation has exactly two authenticated participants.
+    match /conversations/{conversationId} {
+      // A first-time direct conversation must be readable as missing
+      // during the transaction that creates it.
+      allow get: if signedIn()
+        && (
+          resource == null
+          || request.auth.uid in resource.data.participants
+        );
+
+      // Collection queries remain restricted to actual participants.
+      allow list: if signedIn()
+        && request.auth.uid in resource.data.participants;
+
+      allow create: if signedIn()
+        && request.resource.data.type == 'direct'
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() == 2
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.keys().hasOnly([
+          'participants', 'type', 'createdAt', 'updatedAt'
+        ]);
+
+      // Conversation metadata updates will be handled by trusted backend
+      // functions in a later milestone.
+      allow update, delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isParticipant(conversationId);
+
+        allow create: if isParticipant(conversationId)
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.type == 'text'
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 5000
+          && request.resource.data.keys().hasOnly([
+            'senderId', 'text', 'type', 'createdAt'
+          ]);
+
+        allow update, delete: if false;
+      }
+    }
+
+    // Everything else is denied unless a specific rule is added.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
