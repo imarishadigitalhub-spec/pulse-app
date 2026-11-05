@@ -3,7 +3,7 @@ import {
   Activity,
   ArrowLeft,
   Bell,
-  CirclePlay,
+  PlusSquare,
   Compass,
   Camera,
   ChevronDown,
@@ -41,7 +41,7 @@ import {
   type PulseMessage,
 } from './lib/pulse-data';
 
-type Tab = 'Chats' | 'Updates' | 'Explore' | 'Activity' | 'Profile';
+type Tab = 'Chats' | 'Explore' | 'Create' | 'Activity' | 'Profile';
 
 function initials(name: string) {
   return name
@@ -584,8 +584,8 @@ function App() {
 
   const tabs: Array<{ label: Tab; icon: typeof MessageCircle }> = [
     { label: 'Chats', icon: MessageCircle },
-    { label: 'Updates', icon: CirclePlay },
     { label: 'Explore', icon: Compass },
+    { label: 'Create', icon: PlusSquare },
     { label: 'Activity', icon: Activity },
     { label: 'Profile', icon: UserRound },
   ];
@@ -828,15 +828,26 @@ function App() {
           </section>
         )}
 
-        {activeTab === 'Updates' && (
+        {activeTab === 'Create' && (
           <section className="pulse-standard-page">
-            <span className="pulse-eyebrow">MOMENTS FROM YOUR WORLD</span>
-            <h1>Updates</h1>
-            <p className="pulse-lead">A place for moments you choose to share with your people.</p>
+            <span className="pulse-eyebrow">SHARE YOUR WORLD</span>
+            <h1>Create</h1>
+            <p className="pulse-lead">
+              Bring your moments to PULSE. Create posts, share photographs
+              and videos, or publish a temporary 24-hour update.
+            </p>
             <div className="pulse-empty-card">
-              <CirclePlay size={31} />
-              <h2>No updates to show yet</h2>
-              <p>There are no published PULSE updates available to this account. We will connect this page to real 24-hour status publishing and audience controls before enabling it.</p>
+              <PlusSquare size={31} />
+              <h2>Your creative space</h2>
+              <p>
+                The publishing service is the next implementation milestone.
+                Your posts and updates will be stored as real PULSE content
+                and made available through Explore and your profile.
+              </p>
+              <p>
+                Publishing is not enabled yet. Nothing will be posted until
+                the secure publishing service is implemented.
+              </p>
             </div>
           </section>
         )}
