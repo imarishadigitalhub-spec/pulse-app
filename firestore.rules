@@ -200,16 +200,122 @@ service cloud.firestore {
 
         allow create: if isParticipant(conversationId)
           && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.type == 'text'
+          && request.resource.data.type in ['text', 'image', 'video', 'document']
           && request.resource.data.text is string
-          && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 5000
+          && (
+            request.resource.data.type != 'text'
+            || request.resource.data.text.size() > 0
+          )
+          && (
+            request.resource.data.type == 'text'
+            || (
+              request.resource.data.attachmentURL is string
+              && request.resource.data.attachmentURL.size() > 0
+              && request.resource.data.attachmentName is string
+              && request.resource.data.attachmentName.size() <= 255
+              && request.resource.data.attachmentPath is string
+              && request.resource.data.attachmentPath.matches(
+                'conversationAttachments/' + conversationId + '/'
+                + request.auth.uid + '/.*'
+              )
+              && request.resource.data.attachmentContentType is string
+              && request.resource.data.attachmentSize is int
+              && request.resource.data.attachmentSize > 0
+              && (
+                (
+                  request.resource.data.type == 'image'
+                  && request.resource.data.attachmentContentType.matches('image/.*')
+                  && request.resource.data.attachmentSize <= 20 * 1024 * 1024
+                )
+                || (
+                  request.resource.data.type == 'video'
+                  && request.resource.data.attachmentContentType.matches('video/.*')
+                  && request.resource.data.attachmentSize <= 50 * 1024 * 1024
+                )
+                || (
+                  request.resource.data.type == 'document'
+                  && request.resource.data.attachmentContentType in [
+                    'application/pdf',
+                    'application/msword',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'application/vnd.ms-excel',
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'text/plain'
+                  ]
+                  && request.resource.data.attachmentSize <= 20 * 1024 * 1024
+                )
+              )
+            )
+          )
           && request.resource.data.keys().hasOnly([
-            'senderId', 'text', 'type', 'createdAt'
+            'senderId', 'text', 'type', 'createdAt',
+            'attachmentURL', 'attachmentName', 'attachmentPath',
+            'attachmentContentType', 'attachmentSize'
           ]);
 
         allow update, delete: if false;
       }
+    }
+
+    // Published posts are visible to authenticated PULSE members.
+    // Only the author can create, update or delete their own post.
+    match /posts/{postId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.authorName is string
+        && request.resource.data.authorUsername is string
+        && request.resource.data.authorPhotoURL is string
+        && request.resource.data.caption is string
+        && request.resource.data.caption.size() <= 2200
+        && request.resource.data.postType in ['text', 'image', 'video']
+        && request.resource.data.createdAt is timestamp
+        && (
+          request.resource.data.expiresAt == null
+          || request.resource.data.expiresAt is timestamp
+        )
+        && (
+          (
+            request.resource.data.postType == 'text'
+            && !request.resource.data.keys().hasAny([
+              'mediaURL', 'mediaPath', 'mediaType'
+            ])
+          )
+          || (
+            request.resource.data.postType == 'image'
+            && request.resource.data.mediaURL is string
+            && request.resource.data.mediaURL.size() > 0
+            && request.resource.data.mediaPath is string
+            && request.resource.data.mediaPath.matches(
+              'postMedia/' + request.auth.uid + '/.*'
+            )
+            && request.resource.data.mediaType is string
+            && request.resource.data.mediaType.matches('image/.*')
+          )
+          || (
+            request.resource.data.postType == 'video'
+            && request.resource.data.mediaURL is string
+            && request.resource.data.mediaURL.size() > 0
+            && request.resource.data.mediaPath is string
+            && request.resource.data.mediaPath.matches(
+              'postMedia/' + request.auth.uid + '/.*'
+            )
+            && request.resource.data.mediaType is string
+            && request.resource.data.mediaType.matches('video/.*')
+          )
+        )
+        && request.resource.data.keys().hasOnly([
+          'ownerUid', 'authorName', 'authorUsername', 'authorPhotoURL',
+          'caption', 'postType', 'mediaURL', 'mediaPath', 'mediaType',
+          'createdAt', 'expiresAt'
+        ]);
+
+      // Post editing is not implemented yet. Owners may delete their posts.
+      allow update: if false;
+      allow delete: if signedIn()
+        && resource.data.ownerUid == request.auth.uid;
     }
 
     // Everything else is denied unless a specific rule is added.

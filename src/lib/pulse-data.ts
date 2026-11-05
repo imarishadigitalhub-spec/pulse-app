@@ -10,6 +10,7 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  Timestamp,
   setDoc,
   updateDoc,
   where,
@@ -172,8 +173,28 @@ export type PulseMessage = {
   id: string;
   senderId: string;
   text: string;
-  type: 'text';
+  type: 'text' | 'image' | 'video' | 'document';
+  attachmentURL?: string;
+  attachmentName?: string;
+  attachmentPath?: string;
+  attachmentContentType?: string;
+  attachmentSize?: number;
   createdAt?: unknown;
+};
+
+export type PulsePost = {
+  id: string;
+  ownerUid: string;
+  authorName: string;
+  authorUsername: string;
+  authorPhotoURL?: string;
+  caption: string;
+  postType: 'text' | 'image' | 'video';
+  mediaURL?: string;
+  mediaPath?: string;
+  mediaType?: string;
+  createdAt?: unknown;
+  expiresAt?: unknown;
 };
 
 function database() {
@@ -509,6 +530,175 @@ export async function sendTextMessage(
       type: 'text',
       createdAt: serverTimestamp(),
     },
+  );
+}
+
+
+/**
+ * Upload a real conversation attachment and create its message record.
+ * Storage rules must permit the conversationAttachments path before this works.
+ */
+export async function uploadConversationAttachment(
+  conversationId: string,
+  senderId: string,
+  file: File,
+  onProgress?: (percentage: number) => void,
+): Promise<void> {
+  if (!conversationId || !senderId) {
+    throw new Error('Open a conversation before attaching a file.');
+  }
+  if (!storage) throw new Error('Firebase Storage is not configured.');
+
+  const contentType = file.type || 'application/octet-stream';
+  const isImage = contentType.startsWith('image/');
+  const isVideo = contentType.startsWith('video/');
+  const isDocument = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/plain',
+  ].includes(contentType);
+
+  if (!isImage && !isVideo && !isDocument) {
+    throw new Error('Choose an image, video, PDF, Word, Excel or text document.');
+  }
+
+  const maxSize = isVideo ? 50 : 20;
+  if (file.size > maxSize * 1024 * 1024) {
+    throw new Error(`This file is too large. The limit is ${maxSize} MB.`);
+  }
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || 'attachment';
+  const path = `conversationAttachments/${conversationId}/${senderId}/${Date.now()}_${safeName}`;
+  const fileRef = ref(storage, path);
+  const task = uploadBytesResumable(fileRef, file, { contentType });
+
+  await new Promise<void>((resolve, reject) => {
+    task.on(
+      'state_changed',
+      snapshot => {
+        const percentage = snapshot.totalBytes
+          ? Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100)
+          : 0;
+        onProgress?.(percentage);
+      },
+      reject,
+      resolve,
+    );
+  });
+
+  const url = await getDownloadURL(task.snapshot.ref);
+  const messageType = isImage ? 'image' : isVideo ? 'video' : 'document';
+
+  await addDoc(
+    collection(database(), 'conversations', conversationId, 'messages'),
+    {
+      senderId,
+      text: file.name,
+      type: messageType,
+      attachmentURL: url,
+      attachmentName: file.name,
+      attachmentPath: path,
+      attachmentContentType: contentType,
+      attachmentSize: file.size,
+      createdAt: serverTimestamp(),
+    },
+  );
+}
+
+/** Publish a real post owned by the signed-in member. */
+export async function publishPost(
+  uid: string,
+  author: { displayName: string; username: string; photoURL?: string },
+  caption: string,
+  file: File | null,
+  expiresAfter24Hours: boolean,
+  onProgress?: (percentage: number) => void,
+): Promise<void> {
+  if (!uid) throw new Error('Sign in before publishing.');
+  if (!storage && file) throw new Error('Firebase Storage is not configured.');
+
+  const value = caption.trim();
+  if (!value && !file) throw new Error('Write something or choose a photo or video.');
+  if (value.length > 2200) throw new Error('Captions must be 2,200 characters or fewer.');
+
+  let mediaURL: string | undefined;
+  let mediaPath: string | undefined;
+  let mediaType: string | undefined;
+  let postType: 'text' | 'image' | 'video' = 'text';
+
+  if (file) {
+    mediaType = file.type;
+    if (file.type.startsWith('image/')) {
+      postType = 'image';
+      if (file.size > 20 * 1024 * 1024) throw new Error('Images must be 20 MB or smaller.');
+    } else if (file.type.startsWith('video/')) {
+      postType = 'video';
+      if (file.size > 100 * 1024 * 1024) throw new Error('Videos must be 100 MB or smaller.');
+    } else {
+      throw new Error('Create posts support photos and videos.');
+    }
+
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || 'media';
+    mediaPath = `postMedia/${uid}/${Date.now()}_${safeName}`;
+    const task = uploadBytesResumable(ref(storage!, mediaPath), file, {
+      contentType: file.type,
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      task.on(
+        'state_changed',
+        snapshot => {
+          const percentage = snapshot.totalBytes
+            ? Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100)
+            : 0;
+          onProgress?.(percentage);
+        },
+        reject,
+        resolve,
+      );
+    });
+
+    mediaURL = await getDownloadURL(task.snapshot.ref);
+  }
+
+  await addDoc(collection(database(), 'posts'), {
+    ownerUid: uid,
+    authorName: author.displayName,
+    authorUsername: author.username,
+    authorPhotoURL: author.photoURL || '',
+    caption: value,
+    postType,
+    ...(mediaURL ? { mediaURL, mediaPath, mediaType } : {}),
+    createdAt: serverTimestamp(),
+    expiresAt: expiresAfter24Hours
+      ? Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000))
+      : null,
+  });
+}
+
+/** Live Explore feed. Expired temporary posts are filtered by the client. */
+export function watchExplorePosts(
+  onPosts: (items: PulsePost[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const postsQuery = query(
+    collection(database(), 'posts'),
+    orderBy('createdAt', 'desc'),
+    limit(50),
+  );
+
+  return onSnapshot(
+    postsQuery,
+    snapshot => {
+      onPosts(snapshot.docs.map(item => ({
+        id: item.id,
+        ...item.data(),
+      }) as PulsePost));
+    },
+    error => onError?.(error),
   );
 }
 

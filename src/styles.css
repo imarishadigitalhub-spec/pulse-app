@@ -1414,3 +1414,176 @@ img, video { max-width: 100%; }
     gap: 5px;
   }
 }
+
+
+/* PULSE media uploads and publishing */
+.pulse-attachment-button {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #293247;
+  border-radius: 11px;
+  color: #a9c5ff;
+  background: #121a2b;
+  cursor: pointer;
+}
+.pulse-attachment-button input,
+.pulse-create-file input {
+  display: none;
+}
+.pulse-upload-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 14px;
+  color: #a9c5ff;
+  font-size: 12px;
+}
+.pulse-upload-progress progress {
+  width: 100%;
+  accent-color: #3b82f6;
+}
+.pulse-chat-attachment-image,
+.pulse-chat-attachment-video {
+  display: block;
+  width: min(100%, 320px);
+  max-height: 360px;
+  object-fit: contain;
+  border-radius: 10px;
+}
+.pulse-chat-document {
+  display: inline-block;
+  color: #c7dcff;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.pulse-create-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+  padding: 20px;
+  border: 1px solid #252c3d;
+  border-radius: 16px;
+  background: #10131c;
+}
+.pulse-create-card textarea {
+  width: 100%;
+  min-height: 130px;
+  resize: vertical;
+  border: 1px solid #293247;
+  border-radius: 12px;
+  padding: 14px;
+  background: #0b0e15;
+  color: #f0f2fa;
+  font: inherit;
+}
+.pulse-create-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  padding: 11px 14px;
+  border: 1px solid #315bb0;
+  border-radius: 10px;
+  background: #172747;
+  color: #dce8ff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pulse-selected-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #c5cee0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.pulse-selected-file button {
+  border: 0;
+  background: transparent;
+  color: #93b7ff;
+  cursor: pointer;
+}
+.pulse-temporary-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #aab2c5;
+  font-size: 13px;
+}
+.pulse-publish-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 11px;
+  background: #3b82f6;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pulse-publish-button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.pulse-post-feed {
+  display: grid;
+  gap: 16px;
+  margin: 24px 0;
+}
+.pulse-post-card {
+  max-width: 720px;
+  padding: 16px;
+  border: 1px solid #252c3d;
+  border-radius: 15px;
+  background: #10131c;
+}
+.pulse-post-author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pulse-post-author > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pulse-post-author small,
+.pulse-post-temporary {
+  color: #8994aa;
+  font-size: 11px;
+}
+.pulse-post-temporary {
+  margin-left: auto;
+}
+.pulse-post-caption {
+  color: #e4e8f2;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pulse-post-media {
+  display: block;
+  width: 100%;
+  max-height: 560px;
+  object-fit: contain;
+  border-radius: 11px;
+  background: #080a0f;
+}
+.pulse-post-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 18px;
+  border: 1px dashed #30384b;
+  border-radius: 12px;
+  color: #aab2c5;
+  font-size: 13px;
+}

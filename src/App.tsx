@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Activity,
   ArrowLeft,
   Bell,
   PlusSquare,
@@ -31,6 +30,9 @@ import {
   unfollowMember,
   updateOwnProfile,
   sendTextMessage,
+  uploadConversationAttachment,
+  publishPost,
+  watchExplorePosts,
   startDirectConversation,
   watchConversations,
   watchDiscoverablePeople,
@@ -44,6 +46,7 @@ import {
   type PublicProfile,
   type PulseConversation,
   type PulseMessage,
+  type PulsePost,
   type PulseConversationPreference,
 } from './lib/pulse-data';
 
@@ -136,6 +139,14 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [viewedProfile, setViewedProfile] = useState<PublicProfile | null>(null);
   const [messageText, setMessageText] = useState('');
+  const [posts, setPosts] = useState<PulsePost[]>([]);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [attachmentProgress, setAttachmentProgress] = useState(0);
+  const [createCaption, setCreateCaption] = useState('');
+  const [createFile, setCreateFile] = useState<File | null>(null);
+  const [createTemporary, setCreateTemporary] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishProgress, setPublishProgress] = useState(0);
   const [conversationSearch, setConversationSearch] = useState('');
   const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'pinned'>('all');
   const [peopleSearch, setPeopleSearch] = useState('');
@@ -323,6 +334,18 @@ function App() {
       err => setError('Conversation messages: ' + err.message),
     );
   }, [selectedId, user]);
+
+  useEffect(() => {
+    if (!user) {
+      setPosts([]);
+      return;
+    }
+
+    return watchExplorePosts(
+      setPosts,
+      err => setError('Explore posts: ' + err.message),
+    );
+  }, [user]);
 
   useEffect(() => {
     if (!user || !selectedId || messages.length === 0) return;
@@ -576,6 +599,61 @@ function App() {
     }
   }
 
+  async function sendAttachment(file: File | undefined) {
+    if (!user || !selectedId || !file || attachmentBusy) return;
+
+    setAttachmentBusy(true);
+    setAttachmentProgress(0);
+    setError('');
+
+    try {
+      await uploadConversationAttachment(
+        selectedId,
+        user.uid,
+        file,
+        setAttachmentProgress,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Attachment could not be sent.');
+    } finally {
+      setAttachmentBusy(false);
+      setAttachmentProgress(0);
+    }
+  }
+
+  async function publishCurrentPost() {
+    if (!user || publishing) return;
+
+    setPublishing(true);
+    setPublishProgress(0);
+    setError('');
+
+    try {
+      await publishPost(
+        user.uid,
+        {
+          displayName: profile?.displayName || user.displayName || 'PULSE member',
+          username: profile?.username || '',
+          photoURL: profile?.photoURL || user.photoURL || '',
+        },
+        createCaption,
+        createFile,
+        createTemporary,
+        setPublishProgress,
+      );
+
+      setCreateCaption('');
+      setCreateFile(null);
+      setCreateTemporary(false);
+      setActiveTab('Explore');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Your post could not be published.');
+    } finally {
+      setPublishing(false);
+      setPublishProgress(0);
+    }
+  }
+
   async function changeProfilePhoto(file: File | undefined) {
     if (!user || !file || profilePhotoBusy) return;
 
@@ -639,7 +717,7 @@ function App() {
     { label: 'Chats', icon: MessageCircle },
     { label: 'Explore', icon: Compass },
     { label: 'Create', icon: PlusSquare },
-    { label: 'Activity', icon: Activity },
+    { label: 'Activity', icon: Bell },
     { label: 'Profile', icon: UserRound },
   ];
 
@@ -904,7 +982,20 @@ function App() {
                       return (
                         <div key={item.id} className={`pulse-message-row ${mine ? 'mine' : ''}`}>
                           <div className="pulse-message-bubble">
-                            {item.text}
+                            {item.type === 'image' && item.attachmentURL && (
+                              <a href={item.attachmentURL} target="_blank" rel="noreferrer">
+                                <img className="pulse-chat-attachment-image" src={item.attachmentURL} alt={item.attachmentName || 'Shared image'} />
+                              </a>
+                            )}
+                            {item.type === 'video' && item.attachmentURL && (
+                              <video className="pulse-chat-attachment-video" src={item.attachmentURL} controls preload="metadata" />
+                            )}
+                            {item.type === 'document' && item.attachmentURL && (
+                              <a className="pulse-chat-document" href={item.attachmentURL} target="_blank" rel="noreferrer">
+                                {item.attachmentName || 'Open document'}
+                              </a>
+                            )}
+                            {item.type === 'text' && <span>{item.text}</span>}
                             <small>{timestampLabel(item.createdAt)}</small>
                           </div>
                         </div>
@@ -919,6 +1010,31 @@ function App() {
                       void sendMessage();
                     }}
                   >
+                    <label className="pulse-attachment-button" title="Attach a photo, video or document">
+                      <Plus size={19} />
+                      <input
+                        type="file"
+                        accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                        disabled={attachmentBusy}
+                        onChange={event => {
+                          void sendAttachment(event.target.files?.[0]);
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                    <label className="pulse-attachment-button pulse-camera-button" title="Take a photo">
+                      <Camera size={18} />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        disabled={attachmentBusy}
+                        onChange={event => {
+                          void sendAttachment(event.target.files?.[0]);
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
                     <input
                       value={messageText}
                       onChange={event => setMessageText(event.target.value)}
@@ -929,6 +1045,12 @@ function App() {
                       <Send size={18} />
                     </button>
                   </form>
+                  {attachmentBusy && (
+                    <div className="pulse-upload-progress">
+                      <span>Uploading attachment… {attachmentProgress}%</span>
+                      <progress value={attachmentProgress} max="100" />
+                    </div>
+                  )}
                 </>
               </div>
             )}
@@ -940,21 +1062,55 @@ function App() {
             <span className="pulse-eyebrow">SHARE YOUR WORLD</span>
             <h1>Create</h1>
             <p className="pulse-lead">
-              Bring your moments to PULSE. Create posts, share photographs
-              and videos, or publish a temporary 24-hour update.
+              Share a thought, photograph or video with your PULSE community.
             </p>
-            <div className="pulse-empty-card">
-              <PlusSquare size={31} />
-              <h2>Your creative space</h2>
-              <p>
-                The publishing service is the next implementation milestone.
-                Your posts and updates will be stored as real PULSE content
-                and made available through Explore and your profile.
-              </p>
-              <p>
-                Publishing is not enabled yet. Nothing will be posted until
-                the secure publishing service is implemented.
-              </p>
+
+            <div className="pulse-create-card">
+              <textarea
+                value={createCaption}
+                onChange={event => setCreateCaption(event.target.value)}
+                maxLength={2200}
+                placeholder="What would you like to share?"
+                rows={5}
+              />
+              <div className="pulse-create-media">
+                <label className="pulse-create-file">
+                  <Camera size={18} /> Choose photo or video
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    onChange={event => setCreateFile(event.target.files?.[0] || null)}
+                  />
+                </label>
+                {createFile && (
+                  <div className="pulse-selected-file">
+                    <span>{createFile.name}</span>
+                    <button type="button" onClick={() => setCreateFile(null)}>Remove</button>
+                  </div>
+                )}
+              </div>
+              <label className="pulse-temporary-toggle">
+                <input
+                  type="checkbox"
+                  checked={createTemporary}
+                  onChange={event => setCreateTemporary(event.target.checked)}
+                />
+                Make this a temporary 24-hour post
+              </label>
+              {publishing && (
+                <div className="pulse-upload-progress">
+                  <span>Publishing… {publishProgress}%</span>
+                  <progress value={publishProgress} max="100" />
+                </div>
+              )}
+              <button
+                type="button"
+                className="pulse-publish-button"
+                disabled={publishing || (!createCaption.trim() && !createFile)}
+                onClick={() => void publishCurrentPost()}
+              >
+                <PlusSquare size={18} /> {publishing ? 'Publishing…' : 'Publish to Explore'}
+              </button>
             </div>
           </section>
         )}
@@ -973,6 +1129,40 @@ function App() {
                 placeholder="Search members by name or username"
               />
             </label>
+
+            <div className="pulse-post-feed">
+              {posts
+                .filter(post => {
+                  if (!post.expiresAt || typeof post.expiresAt !== 'object' || !('toDate' in post.expiresAt)) return true;
+                  const expiry = (post.expiresAt as { toDate: () => Date }).toDate();
+                  return expiry.getTime() > Date.now();
+                })
+                .map(post => (
+                  <article className="pulse-post-card" key={post.id}>
+                    <div className="pulse-post-author">
+                      <Avatar name={post.authorName || 'PULSE member'} photoURL={post.authorPhotoURL} small />
+                      <div>
+                        <strong>{post.authorName || 'PULSE member'}</strong>
+                        <small>@{post.authorUsername || 'member'}</small>
+                      </div>
+                      {Boolean(post.expiresAt) && <span className="pulse-post-temporary">24-hour post</span>}
+                    </div>
+                    {post.caption && <p className="pulse-post-caption">{post.caption}</p>}
+                    {post.postType === 'image' && post.mediaURL && (
+                      <img className="pulse-post-media" src={post.mediaURL} alt="Post shared by a PULSE member" loading="lazy" />
+                    )}
+                    {post.postType === 'video' && post.mediaURL && (
+                      <video className="pulse-post-media" src={post.mediaURL} controls preload="metadata" />
+                    )}
+                  </article>
+                ))}
+              {posts.length === 0 && (
+                <div className="pulse-post-empty">
+                  <strong>No posts yet</strong>
+                  <span>Published posts from PULSE members will appear here.</span>
+                </div>
+              )}
+            </div>
 
             <div className="pulse-people-grid">
               {filteredPeople.map(person => (
