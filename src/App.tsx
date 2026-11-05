@@ -98,7 +98,6 @@ function timestampLabel(value: unknown): string {
   if (!value || typeof value !== 'object') return '';
 
   const timestamp = value as { toDate?: () => Date };
-
   if (typeof timestamp.toDate !== 'function') return '';
 
   return timestamp.toDate().toLocaleTimeString([], {
@@ -107,7 +106,27 @@ function timestampLabel(value: unknown): string {
   });
 }
 
+function inboxDateLabel(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
 
+  const timestamp = value as { toDate?: () => Date };
+  if (typeof timestamp.toDate !== 'function') return '';
+
+  const date = timestamp.toDate();
+  const now = new Date();
+
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const messageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  const daysAgo = Math.floor(
+    (today.getTime() - messageDay.getTime()) / 86400000
+  );
+
+  if (daysAgo <= 0) return 'Today';
+  if (daysAgo === 1) return 'Yesterday';
+
+  return date.toLocaleDateString([], { weekday: 'long' });
+}
 
 function App() {
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
@@ -150,6 +169,7 @@ function App() {
   const [conversationSearch, setConversationSearch] = useState('');
   const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'pinned'>('all');
   const [peopleSearch, setPeopleSearch] = useState('');
+  const [showNewChat, setShowNewChat] = useState(false);
 
   const [sending, setSending] = useState(false);
   const [privacyBusy, setPrivacyBusy] = useState(false);
@@ -545,6 +565,7 @@ function App() {
 
       setSelectedId(id);
       setViewedProfile(null);
+      setShowNewChat(false);
       setActiveTab('Chats');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not open this conversation.');
@@ -838,9 +859,10 @@ function App() {
                 <button
                   type="button"
                   className="pulse-new-conversation"
-                  onClick={() => setActiveTab('Explore')}
+                  onClick={() => setShowNewChat(value => !value)}
+                  aria-expanded={showNewChat}
                 >
-                  <Plus size={17} /> New chat
+                  <Plus size={17} /> {showNewChat ? 'Close' : 'New chat'}
                 </button>
               </div>
 
@@ -877,7 +899,51 @@ function App() {
                 </button>
               </div>
 
-              <div className="pulse-inbox-list">
+              {showNewChat && (
+                <div className="pulse-new-chat-people">
+                  <div className="pulse-new-chat-heading">
+                    <strong>Start a conversation</strong>
+                    <span>People who follow you and people you follow</span>
+                  </div>
+                  {[...new Set([...followingUids, ...followerUids])]
+                    .filter(uid => uid !== user.uid)
+                    .map(uid => {
+                      const person = relationshipProfiles[uid];
+                      if (!person) return null;
+
+                      const followsYou = followerUids.includes(uid);
+                      const youFollow = followingUids.includes(uid);
+
+                      return (
+                        <button
+                          type="button"
+                          className="pulse-new-chat-person"
+                          key={uid}
+                          onClick={() => void openMessage(person)}
+                        >
+                          <Avatar name={person.displayName} photoURL={person.photoURL} />
+                          <span>
+                            <strong>{person.displayName}</strong>
+                            <small>
+                              @{person.username} · {[
+                                youFollow ? 'Following' : '',
+                                followsYou ? 'Follows you' : '',
+                              ].filter(Boolean).join(' · ')}
+                            </small>
+                          </span>
+                          <MessageCircle size={18} />
+                        </button>
+                      );
+                    })}
+                  {[...new Set([...followingUids, ...followerUids])].length === 0 && (
+                    <p className="pulse-new-chat-empty">
+                      Your followers and the people you follow will appear here.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className={`pulse-inbox-list ${showNewChat ? 'pulse-inbox-list-hidden' : ''}`}>
                 {inboxConversations.map(({ conversation, partner, latest, preference, unread }) => (
                   <div
                     key={conversation.id}
@@ -901,7 +967,7 @@ function App() {
                         </small>
                       </span>
                       <span className="pulse-conversation-meta">
-                        {latest ? timestampLabel(latest.createdAt) : ''}
+                        {latest ? inboxDateLabel(latest.createdAt) : ''}
                         {unread && <span className="pulse-unread-dot" aria-label="Unread message" />}
                       </span>
                     </button>

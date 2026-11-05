@@ -1587,3 +1587,164 @@ img, video { max-width: 100%; }
   color: #aab2c5;
   font-size: 13px;
 }
+
+
+/* PULSE: flat WhatsApp-style conversation inbox */
+.pulse-inbox {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.pulse-inbox-list {
+  padding: 0 18px 18px !important;
+}
+
+.pulse-inbox-list-hidden {
+  display: none !important;
+}
+
+.pulse-conversation {
+  width: 100%;
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 4px !important;
+  border: 0 !important;
+  border-bottom: 1px solid #222a39 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.pulse-conversation:hover,
+.pulse-conversation.active {
+  background: #121a29 !important;
+}
+
+.pulse-conversation-open {
+  min-height: 52px;
+  gap: 12px;
+}
+
+.pulse-conversation-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+}
+
+.pulse-conversation-copy strong {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.pulse-conversation-copy small {
+  max-width: 100%;
+  overflow: hidden;
+  color: #929db2;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulse-conversation-meta {
+  min-width: max-content;
+  align-self: center;
+  color: #8794aa;
+  font-size: 11px;
+}
+
+.pulse-pin-button {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+}
+
+.pulse-new-chat-people {
+  padding: 5px 18px 18px;
+}
+
+.pulse-new-chat-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 0 14px;
+}
+
+.pulse-new-chat-heading strong {
+  color: #f0f3fb;
+  font-size: 14px;
+}
+
+.pulse-new-chat-heading span,
+.pulse-new-chat-person small {
+  color: #929db2;
+  font-size: 11px;
+}
+
+.pulse-new-chat-person {
+  width: 100%;
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border: 0;
+  border-bottom: 1px solid #222a39;
+  background: transparent;
+  color: #f0f3fb;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pulse-new-chat-person:hover {
+  background: #121a29;
+}
+
+.pulse-new-chat-person > span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pulse-new-chat-person > span strong {
+  font-size: 13px;
+}
+
+.pulse-new-chat-person > svg {
+  color: #83aaff;
+}
+
+.pulse-new-chat-empty {
+  padding: 22px 4px;
+  color: #929db2;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  .pulse-inbox {
+    min-height: calc(100dvh - 180px);
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+  }
+
+  .pulse-inbox-list {
+    padding: 0 5px 18px !important;
+  }
+
+  .pulse-conversation {
+    min-height: 74px;
+    padding: 10px 5px !important;
+  }
+
+  .pulse-new-chat-people {
+    padding-right: 5px;
+    padding-left: 5px;
+  }
+}
