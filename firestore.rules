@@ -92,6 +92,47 @@ service cloud.firestore {
         allow update: if false;
       }
 
+      // Per-member inbox preferences never modify shared conversations.
+      match /conversationPreferences/{conversationId} {
+        allow read: if isOwner(uid);
+
+        allow create: if isOwner(uid)
+          && request.resource.data.keys().hasOnly([
+            'pinned', 'lastReadAt', 'updatedAt'
+          ])
+          && (
+            !request.resource.data.keys().hasAny(['pinned'])
+            || request.resource.data.pinned is bool
+          )
+          && (
+            !request.resource.data.keys().hasAny(['lastReadAt'])
+            || request.resource.data.lastReadAt is timestamp
+          )
+          && (
+            !request.resource.data.keys().hasAny(['updatedAt'])
+            || request.resource.data.updatedAt is timestamp
+          );
+
+        allow update: if isOwner(uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'pinned', 'lastReadAt', 'updatedAt'
+          ])
+          && (
+            !request.resource.data.keys().hasAny(['pinned'])
+            || request.resource.data.pinned is bool
+          )
+          && (
+            !request.resource.data.keys().hasAny(['lastReadAt'])
+            || request.resource.data.lastReadAt is timestamp
+          )
+          && (
+            !request.resource.data.keys().hasAny(['updatedAt'])
+            || request.resource.data.updatedAt is timestamp
+          );
+
+        allow delete: if isOwner(uid);
+      }
+
       match /devices/{deviceId} {
         allow read, write: if isOwner(uid);
       }

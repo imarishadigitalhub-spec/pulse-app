@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   Bell,
   PlusSquare,
+  Pin,
+  Plus,
   Compass,
   Camera,
   ChevronDown,
@@ -34,11 +36,15 @@ import {
   watchDiscoverablePeople,
   watchMessages,
   watchLatestMessage,
+  watchConversationPreferences,
+  setConversationPinned,
+  markConversationRead,
   watchOwnProfile,
   watchProfile,
   type PublicProfile,
   type PulseConversation,
   type PulseMessage,
+  type PulseConversationPreference,
 } from './lib/pulse-data';
 
 type Tab = 'Chats' | 'Explore' | 'Create' | 'Activity' | 'Profile';
@@ -124,12 +130,14 @@ function App() {
   const [conversationProfiles, setConversationProfiles] = useState<Record<string, PublicProfile>>({});
   const [conversations, setConversations] = useState<PulseConversation[]>([]);
   const [latestMessages, setLatestMessages] = useState<Record<string, PulseMessage | null>>({});
+  const [conversationPreferences, setConversationPreferences] = useState<Record<string, PulseConversationPreference>>({});
   const [messages, setMessages] = useState<PulseMessage[]>([]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [viewedProfile, setViewedProfile] = useState<PublicProfile | null>(null);
   const [messageText, setMessageText] = useState('');
   const [conversationSearch, setConversationSearch] = useState('');
+  const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'pinned'>('all');
   const [peopleSearch, setPeopleSearch] = useState('');
 
   const [sending, setSending] = useState(false);
@@ -289,6 +297,19 @@ function App() {
   }, [conversations, user]);
 
   useEffect(() => {
+    if (!user) {
+      setConversationPreferences({});
+      return;
+    }
+
+    return watchConversationPreferences(
+      user.uid,
+      setConversationPreferences,
+      err => setError('Inbox preferences: ' + err.message),
+    );
+  }, [user]);
+
+  useEffect(() => {
     if (!selectedId || !user) {
       setMessages([]);
       return;
@@ -302,6 +323,14 @@ function App() {
       err => setError('Conversation messages: ' + err.message),
     );
   }, [selectedId, user]);
+
+  useEffect(() => {
+    if (!user || !selectedId || messages.length === 0) return;
+
+    void markConversationRead(user.uid, selectedId).catch(err => {
+      setError(err instanceof Error ? err.message : 'Could not update read status.');
+    });
+  }, [user, selectedId, messages[messages.length - 1]?.id]);
 
   // Each inbox row listens to the latest real message in its shared conversation.
   // This keeps previews and ordering synchronized without client-side writes
@@ -408,13 +437,22 @@ function App() {
           bio: '',
           discoverable: false,
         };
-        return {
-          conversation,
-          partner,
-          latest: latestMessages[conversation.id] ?? null,
-        };
+        const latest = latestMessages[conversation.id] ?? null;
+        const preference = conversationPreferences[conversation.id];
+        const latestTime = timestampMillis(latest?.createdAt);
+        const lastReadTime = timestampMillis(preference?.lastReadAt);
+        const unread = Boolean(
+          latest &&
+          latest.senderId !== user?.uid &&
+          latestTime > lastReadTime
+        );
+
+        return { conversation, partner, latest, preference, unread };
       })
       .filter(item => {
+        if (inboxFilter === 'unread' && !item.unread) return false;
+        if (inboxFilter === 'pinned' && !item.preference?.pinned) return false;
+
         if (!term) return true;
         return (
           item.partner.displayName.toLowerCase().includes(term) ||
@@ -423,15 +461,30 @@ function App() {
         );
       })
       .sort((a, b) => {
+        const pinDifference =
+          Number(Boolean(b.preference?.pinned)) -
+          Number(Boolean(a.preference?.pinned));
+
+        if (pinDifference !== 0) return pinDifference;
+
         const aTime = timestampMillis(a.latest?.createdAt) ||
           timestampMillis(a.conversation.updatedAt) ||
           timestampMillis(a.conversation.createdAt);
         const bTime = timestampMillis(b.latest?.createdAt) ||
           timestampMillis(b.conversation.updatedAt) ||
           timestampMillis(b.conversation.createdAt);
+
         return bTime - aTime;
       });
-  }, [conversations, conversationSearch, latestMessages, peopleByUid, user]);
+  }, [
+    conversations,
+    conversationSearch,
+    conversationPreferences,
+    inboxFilter,
+    latestMessages,
+    peopleByUid,
+    user,
+  ]);
 
   const filteredPeople = useMemo(() => {
     const term = peopleSearch.trim().toLowerCase();
@@ -704,6 +757,13 @@ function App() {
                   <h1>Chats</h1>
                   <p>Your conversations, together in one inbox.</p>
                 </div>
+                <button
+                  type="button"
+                  className="pulse-new-conversation"
+                  onClick={() => setActiveTab('Explore')}
+                >
+                  <Plus size={17} /> New chat
+                </button>
               </div>
 
               <label className="pulse-search">
@@ -715,36 +775,83 @@ function App() {
                 />
               </label>
 
+              <div className="pulse-inbox-filters" aria-label="Filter conversations">
+                <button
+                  type="button"
+                  className={inboxFilter === 'all' ? 'active' : ''}
+                  onClick={() => setInboxFilter('all')}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  className={inboxFilter === 'unread' ? 'active' : ''}
+                  onClick={() => setInboxFilter('unread')}
+                >
+                  Unread
+                </button>
+                <button
+                  type="button"
+                  className={inboxFilter === 'pinned' ? 'active' : ''}
+                  onClick={() => setInboxFilter('pinned')}
+                >
+                  Pinned
+                </button>
+              </div>
+
               <div className="pulse-inbox-list">
-                {inboxConversations.map(({ conversation, partner, latest }) => (
-                  <button
+                {inboxConversations.map(({ conversation, partner, latest, preference, unread }) => (
+                  <div
                     key={conversation.id}
                     className={`pulse-conversation ${selectedId === conversation.id ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedId(conversation.id);
-                      setActiveTab('Chats');
-                    }}
                   >
-                    <Avatar name={partner.displayName} photoURL={partner.photoURL} />
-                    <span className="pulse-conversation-copy">
-                      <strong>{partner.displayName}</strong>
-                      <small>
-                        {latest
-                          ? `${latest.senderId === user.uid ? 'You: ' : ''}${latest.text}`
-                          : `@${partner.username} · Start a conversation`}
-                      </small>
-                    </span>
-                    <span className="pulse-conversation-meta">
-                      {latest ? timestampLabel(latest.createdAt) : ''}
-                    </span>
-                  </button>
+                    <button
+                      type="button"
+                      className="pulse-conversation-open"
+                      onClick={() => {
+                        setSelectedId(conversation.id);
+                        setActiveTab('Chats');
+                      }}
+                    >
+                      <Avatar name={partner.displayName} photoURL={partner.photoURL} />
+                      <span className="pulse-conversation-copy">
+                        <strong>{partner.displayName}</strong>
+                        <small>
+                          {latest
+                            ? `${latest.senderId === user.uid ? 'You: ' : ''}${latest.text}`
+                            : `@${partner.username} · Start a conversation`}
+                        </small>
+                      </span>
+                      <span className="pulse-conversation-meta">
+                        {latest ? timestampLabel(latest.createdAt) : ''}
+                        {unread && <span className="pulse-unread-dot" aria-label="Unread message" />}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`pulse-pin-button ${preference?.pinned ? 'pinned' : ''}`}
+                      aria-label={preference?.pinned ? 'Unpin conversation' : 'Pin conversation'}
+                      title={preference?.pinned ? 'Unpin conversation' : 'Pin conversation'}
+                      onClick={() => {
+                        void setConversationPinned(
+                          user.uid,
+                          conversation.id,
+                          !preference?.pinned,
+                        ).catch(err => {
+                          setError(err instanceof Error ? err.message : 'Could not update pinned conversation.');
+                        });
+                      }}
+                    >
+                      <Pin size={15} />
+                    </button>
+                  </div>
                 ))}
 
                 {inboxConversations.length === 0 && (
                   <div className="pulse-empty-small">
                     <MessageCircle size={25} />
                     <strong>
-                      {conversations.length === 0 ? 'Your inbox is ready' : 'No matching conversations'}
+                      {conversations.length === 0 ? 'Your inbox is ready' : inboxFilter === 'unread' ? 'No unread conversations' : inboxFilter === 'pinned' ? 'No pinned conversations' : 'No matching conversations'}
                     </strong>
                     <p>
                       {conversations.length === 0

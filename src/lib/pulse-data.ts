@@ -392,6 +392,62 @@ export function watchLatestMessage(
   );
 }
 
+
+export type PulseConversationPreference = {
+  id: string;
+  pinned?: boolean;
+  lastReadAt?: unknown;
+  updatedAt?: unknown;
+};
+
+/**
+ * Private, per-member inbox preferences.
+ * These records never modify shared conversation metadata.
+ */
+export function watchConversationPreferences(
+  uid: string,
+  onPreferences: (items: Record<string, PulseConversationPreference>) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    collection(database(), 'users', uid, 'conversationPreferences'),
+    snapshot => {
+      const items: Record<string, PulseConversationPreference> = {};
+      snapshot.docs.forEach(item => {
+        items[item.id] = {
+          id: item.id,
+          ...item.data(),
+        } as PulseConversationPreference;
+      });
+      onPreferences(items);
+    },
+    error => onError?.(error),
+  );
+}
+
+export async function setConversationPinned(
+  uid: string,
+  conversationId: string,
+  pinned: boolean,
+): Promise<void> {
+  await setDoc(
+    doc(database(), 'users', uid, 'conversationPreferences', conversationId),
+    { pinned, updatedAt: serverTimestamp() },
+    { merge: true },
+  );
+}
+
+export async function markConversationRead(
+  uid: string,
+  conversationId: string,
+): Promise<void> {
+  await setDoc(
+    doc(database(), 'users', uid, 'conversationPreferences', conversationId),
+    { lastReadAt: serverTimestamp(), updatedAt: serverTimestamp() },
+    { merge: true },
+  );
+}
+
 export async function startDirectConversation(
   currentUid: string,
   otherUid: string,

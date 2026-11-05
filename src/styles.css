@@ -1299,3 +1299,118 @@ img, video { max-width: 100%; }
 @media (max-width: 520px) {
   .pulse-account-menu { right: -5px; }
 }
+
+
+/* PULSE inbox filters and per-member conversation controls */
+.pulse-inbox .pulse-page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pulse-new-conversation {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 11px;
+  border: 1px solid #315bb0;
+  border-radius: 10px;
+  background: #172747;
+  color: #dce8ff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pulse-inbox-filters {
+  display: flex;
+  gap: 7px;
+  padding: 0 18px 14px;
+}
+
+.pulse-inbox-filters button {
+  padding: 7px 12px;
+  border: 1px solid #292f40;
+  border-radius: 999px;
+  background: #121725;
+  color: #929aaf;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.pulse-inbox-filters button.active {
+  border-color: #3b82f6;
+  background: #1b3156;
+  color: #f4f7ff;
+}
+
+.pulse-conversation {
+  min-width: 0;
+  position: relative;
+}
+
+.pulse-conversation-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pulse-conversation-copy {
+  flex: 1;
+}
+
+.pulse-conversation-meta {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.pulse-pin-button {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #64708a;
+  cursor: pointer;
+}
+
+.pulse-pin-button:hover,
+.pulse-pin-button.pinned {
+  background: #202d45;
+  color: #8db4ff;
+}
+
+.pulse-unread-dot {
+  width: 7px;
+  height: 7px;
+  display: inline-block;
+  border-radius: 50%;
+  background: #60a5fa;
+}
+
+@media (max-width: 420px) {
+  .pulse-new-conversation {
+    padding: 8px;
+    font-size: 11px;
+  }
+
+  .pulse-inbox-filters {
+    gap: 5px;
+  }
+}
