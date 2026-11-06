@@ -1748,3 +1748,215 @@ img, video { max-width: 100%; }
     padding-left: 5px;
   }
 }
+
+
+/* Social profile milestone */
+.pulse-social-profile-page {
+  max-width: 760px;
+  overflow: hidden;
+}
+.pulse-social-cover {
+  height: 150px;
+  margin: 0 0 -58px;
+  border: 1px solid #28344b;
+  border-radius: 18px;
+  background:
+    radial-gradient(ellipse at 78% 18%, #2563eb66, transparent 42%),
+    radial-gradient(ellipse at 18% 90%, #164e6380, transparent 48%),
+    linear-gradient(125deg, #111827, #172554 58%, #101827);
+}
+.pulse-social-profile-heading {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 20px 22px;
+  text-align: center;
+}
+.pulse-social-profile-heading > .pulse-avatar {
+  width: 116px;
+  height: 116px;
+  flex: 0 0 116px;
+  border: 4px solid #0a0a0b;
+  outline: 2px solid #3b82f6;
+  border-radius: 50%;
+  font-size: 32px;
+}
+.pulse-social-profile-heading h1 {
+  margin: 15px 0 2px;
+  font-size: 25px;
+}
+.pulse-social-profile-heading > span {
+  color: #9caec8;
+  font-size: 13px;
+}
+.pulse-social-profile-heading > p {
+  max-width: 520px;
+  margin: 12px auto 0;
+  color: #c4ccda;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pulse-social-profile-heading .pulse-profile-photo-controls {
+  justify-content: center;
+  margin-top: 16px;
+}
+.pulse-social-stats-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 24px;
+}
+.pulse-social-stats-three > div,
+.pulse-social-stats-three button {
+  min-width: 0;
+  min-height: 74px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 6px;
+  border: 1px solid #252f43;
+  border-radius: 12px;
+  background: #101622;
+  color: inherit;
+}
+.pulse-social-stats-three strong { font-size: 21px; }
+.pulse-social-stats-three span { color: #9caec8; font-size: 11px; }
+.pulse-profile-post-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 15px 2px 12px;
+  border-bottom: 1px solid #293247;
+}
+.pulse-profile-post-heading strong { font-size: 14px; }
+.pulse-profile-post-heading span {
+  color: #9caec8;
+  font-size: 12px;
+}
+.pulse-profile-post-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  margin-top: 3px;
+}
+.pulse-profile-post-tile {
+  position: relative;
+  min-width: 0;
+  aspect-ratio: 1;
+  overflow: hidden;
+  background: #111827;
+}
+.pulse-profile-post-tile img,
+.pulse-profile-post-tile video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.pulse-profile-post-tile video { background: #05070b; }
+.pulse-profile-post-tile > p {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 12px;
+  overflow: hidden;
+  color: #dce8ff;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.pulse-profile-no-posts {
+  grid-column: 1 / -1;
+  padding: 35px 15px;
+  color: #929aaf;
+  font-size: 13px;
+  text-align: center;
+}
+.pulse-profile-settings {
+  margin-top: 26px;
+  border: 1px solid #293247;
+  border-radius: 14px;
+  background: #0e121d;
+  overflow: hidden;
+}
+.pulse-profile-settings-trigger {
+  width: 100%;
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 16px;
+  border: 0;
+  background: transparent;
+  color: #eef2ff;
+  text-align: left;
+  cursor: pointer;
+}
+.pulse-profile-settings-trigger > span {
+  display: grid;
+  gap: 5px;
+}
+.pulse-profile-settings-trigger strong {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+}
+.pulse-profile-settings-trigger small {
+  color: #929aaf;
+  font-size: 11px;
+}
+.pulse-profile-settings-trigger > svg {
+  transition: transform .2s ease;
+}
+.pulse-profile-settings-trigger > svg.pulse-chevron-open {
+  transform: rotate(180deg);
+}
+.pulse-profile-settings-content {
+  padding: 0 13px 13px;
+  border-top: 1px solid #293247;
+}
+.pulse-profile-settings-content .pulse-settings-card {
+  margin-top: 13px;
+  padding: 17px;
+}
+.pulse-post-author-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pulse-post-author-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.pulse-explore-page .pulse-post-feed {
+  max-width: 680px;
+  margin: 0 auto;
+}
+@media (max-width: 520px) {
+  .pulse-social-cover {
+    height: 118px;
+    margin-bottom: -49px;
+  }
+  .pulse-social-profile-heading > .pulse-avatar {
+    width: 100px;
+    height: 100px;
+    flex-basis: 100px;
+  }
+  .pulse-social-stats-three > div,
+  .pulse-social-stats-three button {
+    min-height: 66px;
+  }
+  .pulse-profile-post-grid { gap: 2px; }
+}

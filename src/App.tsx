@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft,
   Bell,
   PlusSquare,
   Pin,
@@ -148,7 +147,6 @@ function App() {
   const [profilePhotoBusy, setProfilePhotoBusy] = useState(false);
   const [profilePhotoProgress, setProfilePhotoProgress] = useState(0);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [profileReturnTo, setProfileReturnTo] = useState<'chat' | 'explore'>('explore');
   const [conversationProfiles, setConversationProfiles] = useState<Record<string, PublicProfile>>({});
   const [conversations, setConversations] = useState<PulseConversation[]>([]);
   const [latestMessages, setLatestMessages] = useState<Record<string, PulseMessage | null>>({});
@@ -168,7 +166,7 @@ function App() {
   const [publishProgress, setPublishProgress] = useState(0);
   const [conversationSearch, setConversationSearch] = useState('');
   const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'pinned'>('all');
-  const [peopleSearch, setPeopleSearch] = useState('');
+  const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
 
   const [sending, setSending] = useState(false);
@@ -529,14 +527,21 @@ function App() {
     user,
   ]);
 
-  const filteredPeople = useMemo(() => {
-    const term = peopleSearch.trim().toLowerCase();
+  const activePosts = useMemo(
+    () => posts.filter(post => {
+      if (!post.expiresAt || typeof post.expiresAt !== 'object' || !('toDate' in post.expiresAt)) {
+        return true;
+      }
+      const expiry = (post.expiresAt as { toDate: () => Date }).toDate();
+      return expiry.getTime() > Date.now();
+    }),
+    [posts],
+  );
 
-    return people.filter(person =>
-      person.displayName.toLowerCase().includes(term) ||
-      person.username.toLowerCase().includes(term),
-    );
-  }, [people, peopleSearch]);
+  const profilePosts = useMemo(
+    () => activePosts.filter(post => post.ownerUid === (viewedProfile?.uid ?? user?.uid)),
+    [activePosts, viewedProfile, user?.uid],
+  );
 
   const selectedConversation = conversations.find(
     conversation => conversation.id === selectedId,
@@ -1021,7 +1026,7 @@ function App() {
                       onClick={() => {
                         if (!selectedPerson) return;
                         setViewedProfile(selectedPerson);
-                        setProfileReturnTo('chat');
+
                         setActiveTab('Profile');
                       }}
                     >
@@ -1182,89 +1187,59 @@ function App() {
         )}
 
         {activeTab === 'Explore' && (
-          <section className="pulse-standard-page">
-            <span className="pulse-eyebrow">REAL PEOPLE. REAL CONNECTIONS.</span>
+          <section className="pulse-standard-page pulse-explore-page">
+            <span className="pulse-eyebrow">YOUR WORLD ON PULSE</span>
             <h1>Explore</h1>
-            <p className="pulse-lead">Discover PULSE members and connect with their profiles.</p>
-
-            <label className="pulse-search pulse-explore-search">
-              <Search size={17} />
-              <input
-                value={peopleSearch}
-                onChange={event => setPeopleSearch(event.target.value)}
-                placeholder="Search members by name or username"
-              />
-            </label>
+            <p className="pulse-lead">Discover photos, videos and moments shared by the community.</p>
 
             <div className="pulse-post-feed">
-              {posts
-                .filter(post => {
-                  if (!post.expiresAt || typeof post.expiresAt !== 'object' || !('toDate' in post.expiresAt)) return true;
-                  const expiry = (post.expiresAt as { toDate: () => Date }).toDate();
-                  return expiry.getTime() > Date.now();
-                })
-                .map(post => (
-                  <article className="pulse-post-card" key={post.id}>
-                    <div className="pulse-post-author">
-                      <Avatar name={post.authorName || 'PULSE member'} photoURL={post.authorPhotoURL} small />
-                      <div>
-                        <strong>{post.authorName || 'PULSE member'}</strong>
-                        <small>@{post.authorUsername || 'member'}</small>
-                      </div>
-                      {Boolean(post.expiresAt) && <span className="pulse-post-temporary">24-hour post</span>}
-                    </div>
-                    {post.caption && <p className="pulse-post-caption">{post.caption}</p>}
-                    {post.postType === 'image' && post.mediaURL && (
-                      <img className="pulse-post-media" src={post.mediaURL} alt="Post shared by a PULSE member" loading="lazy" />
-                    )}
-                    {post.postType === 'video' && post.mediaURL && (
-                      <video className="pulse-post-media" src={post.mediaURL} controls preload="metadata" />
-                    )}
-                  </article>
-                ))}
-              {posts.length === 0 && (
+              {activePosts.map(post => (
+                <article className="pulse-post-card" key={post.id}>
+                  <button
+                    type="button"
+                    className="pulse-post-author pulse-post-author-button"
+                    onClick={() => {
+                      const author = post.ownerUid === user.uid
+                        ? profile
+                        : people.find(person => person.uid === post.ownerUid);
+                      if (author) {
+                        setViewedProfile(author);
+
+                        setRelationshipView(null);
+                        setEditingProfile(false);
+                        setActiveTab('Profile');
+                      }
+                    }}
+                  >
+                    <Avatar name={post.authorName || 'PULSE member'} photoURL={post.authorPhotoURL} small />
+                    <span className="pulse-post-author-copy">
+                      <strong>{post.authorName || 'PULSE member'}</strong>
+                      <small>@{post.authorUsername || 'member'}</small>
+                    </span>
+                    {Boolean(post.expiresAt) && <span className="pulse-post-temporary">24-hour post</span>}
+                  </button>
+                  {post.caption && <p className="pulse-post-caption">{post.caption}</p>}
+                  {post.postType === 'image' && post.mediaURL && (
+                    <img
+                      className="pulse-post-media"
+                      src={post.mediaURL}
+                      alt="Post shared by a PULSE member"
+                      loading="lazy"
+                    />
+                  )}
+                  {post.postType === 'video' && post.mediaURL && (
+                    <video className="pulse-post-media" src={post.mediaURL} controls preload="metadata" />
+                  )}
+                </article>
+              ))}
+
+              {activePosts.length === 0 && (
                 <div className="pulse-post-empty">
                   <strong>No posts yet</strong>
-                  <span>Published posts from PULSE members will appear here.</span>
+                  <span>Real posts shared by PULSE members will appear here.</span>
                 </div>
               )}
             </div>
-
-            <div className="pulse-people-grid">
-              {filteredPeople.map(person => (
-                <article className="pulse-person-card" key={person.uid}>
-                  <Avatar name={person.displayName} photoURL={person.photoURL} />
-                  <div className="pulse-person-copy">
-                    <strong>{person.displayName}</strong>
-                    <span>@{person.username}</span>
-                    {person.bio && <p>{person.bio}</p>}
-                  </div>
-                  <button onClick={() => {
-                    setViewedProfile(person);
-                    setProfileReturnTo('explore');
-                    setRelationshipView(null);
-                    setEditingProfile(false);
-                    setActiveTab('Profile');
-                  }}>
-                    View profile
-                  </button>
-                  <button onClick={() => void toggleFollow(person)}>
-                    {followingUids.includes(person.uid) ? 'Following' : 'Follow'}
-                  </button>
-                  <button onClick={() => void openMessage(person)}>
-                    <MessageCircle size={16} /> Message
-                  </button>
-                </article>
-              ))}
-            </div>
-
-            {filteredPeople.length === 0 && (
-              <div className="pulse-empty-card">
-                <Compass size={30} />
-                <h2>No discoverable members found</h2>
-                <p>Only real PULSE accounts that have enabled discoverability appear here.</p>
-              </div>
-            )}
           </section>
         )}
 
@@ -1282,32 +1257,18 @@ function App() {
         )}
 
         {activeTab === 'Profile' && (
-          <section className="pulse-standard-page">
+          <section className="pulse-standard-page pulse-social-profile-page">
             {viewedProfile && viewedProfile.uid !== user.uid ? (
               <>
-                <button
-                  className="pulse-public-profile-back"
-                  onClick={() => {
-                    setViewedProfile(null);
-                    setActiveTab(profileReturnTo === 'chat' ? 'Chats' : 'Explore');
-                  }}
-                >
-                  <ArrowLeft size={17} /> {profileReturnTo === 'chat' ? 'Back to conversation' : 'Back to Explore'}
-                </button>
-
-                <span className="pulse-eyebrow">PULSE MEMBER</span>
-                <h1>{viewedProfile.displayName}</h1>
-
-                <div className="pulse-profile-card pulse-public-profile-card">
+                <div className="pulse-social-cover" aria-hidden="true" />
+                <div className="pulse-social-profile-heading">
                   <Avatar
                     name={viewedProfile.displayName}
                     photoURL={viewedProfile.photoURL}
                   />
-                  <div className="pulse-profile-identity">
-                    <h2>{viewedProfile.displayName}</h2>
-                    <span>@{viewedProfile.username}</span>
-                    <p>{viewedProfile.bio || 'This member has not added a bio yet.'}</p>
-                  </div>
+                  <h1>{viewedProfile.displayName}</h1>
+                  <span>@{viewedProfile.username}</span>
+                  <p>{viewedProfile.bio || 'This member has not added a bio yet.'}</p>
                   <div className="pulse-public-profile-actions">
                     <button
                       className={`pulse-profile-action ${followingUids.includes(viewedProfile.uid) ? '' : 'primary'}`}
@@ -1323,61 +1284,83 @@ function App() {
                     </button>
                   </div>
                 </div>
+
+                <div className="pulse-profile-post-heading">
+                  <strong>Posts</strong>
+                  <span>{profilePosts.length}</span>
+                </div>
+                <div className="pulse-profile-post-grid">
+                  {profilePosts.map(post => (
+                    <article className="pulse-profile-post-tile" key={post.id}>
+                      {post.postType === 'image' && post.mediaURL ? (
+                        <img src={post.mediaURL} alt="Profile post" loading="lazy" />
+                      ) : post.postType === 'video' && post.mediaURL ? (
+                        <video src={post.mediaURL} controls preload="metadata" />
+                      ) : (
+                        <p>{post.caption || 'Post'}</p>
+                      )}
+                    </article>
+                  ))}
+                  {profilePosts.length === 0 && (
+                    <div className="pulse-profile-no-posts">
+                      This member has not published any posts yet.
+                    </div>
+                  )}
+                </div>
                 <p className="pulse-profile-privacy-note">
-                  Public profile information only. Private account details are not displayed.
+                  Only public profile information and published posts are shown here.
                 </p>
               </>
             ) : (
               <>
-                <span className="pulse-eyebrow">YOUR PULSE ACCOUNT</span>
-                <h1>Profile</h1>
-
-                <div className="pulse-profile-card">
+                <div className="pulse-social-cover" aria-hidden="true" />
+                <div className="pulse-social-profile-heading">
                   <Avatar name={displayName} photoURL={profile?.photoURL} />
-                  <div className="pulse-profile-identity">
-                    <h2>{displayName}</h2>
-                    <span>@{profile?.username ?? user.uid.slice(0, 10)}</span>
-                    <p>{profile?.bio || 'Your PULSE profile.'}</p>
-                    <small>{user.email ?? 'Email not provided'}</small>
+                  <h1>{displayName}</h1>
+                  <span>@{profile?.username ?? user.uid.slice(0, 10)}</span>
+                  <p>{profile?.bio || 'Your PULSE profile.'}</p>
+                  <div className="pulse-profile-photo-controls">
+                    <label className="pulse-photo-upload">
+                      <Camera size={16} />
+                      {profilePhotoBusy
+                        ? `Uploading ${profilePhotoProgress}%`
+                        : 'Change photo'}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={profilePhotoBusy}
+                        onChange={event => {
+                          const file = event.currentTarget.files?.[0];
+                          void changeProfilePhoto(file);
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                    {profile?.photoURL && (
+                      <button
+                        type="button"
+                        className="pulse-photo-remove"
+                        onClick={() => void clearProfilePhoto()}
+                        disabled={profilePhotoBusy}
+                      >
+                        <Trash2 size={15} /> Remove
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                <div className="pulse-profile-photo-controls">
-                  <label className="pulse-photo-upload">
-                    <Camera size={16} />
-                    {profilePhotoBusy
-                      ? `Uploading ${profilePhotoProgress}%`
-                      : 'Change profile photo'}
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      disabled={profilePhotoBusy}
-                      onChange={event => {
-                        const file = event.currentTarget.files?.[0];
-                        void changeProfilePhoto(file);
-                        event.currentTarget.value = '';
-                      }}
-                    />
-                  </label>
-                  {profile?.photoURL && (
-                    <button
-                      type="button"
-                      className="pulse-photo-remove"
-                      onClick={() => void clearProfilePhoto()}
-                      disabled={profilePhotoBusy}
-                    >
-                      <Trash2 size={15} /> Remove photo
-                    </button>
-                  )}
-                  <small>JPG, PNG or WebP · Maximum 5 MB</small>
-                </div>
-
-                <div className="pulse-social-stats">
+                <div className="pulse-social-stats pulse-social-stats-three">
+                  <div>
+                    <strong>{profilePosts.length}</strong>
+                    <span>Posts</span>
+                  </div>
                   <button onClick={() => setRelationshipView(relationshipView === 'followers' ? null : 'followers')}>
-                    <strong>{followerUids.length}</strong><span>Followers</span>
+                    <strong>{followerUids.length}</strong>
+                    <span>Followers</span>
                   </button>
                   <button onClick={() => setRelationshipView(relationshipView === 'following' ? null : 'following')}>
-                    <strong>{followingUids.length}</strong><span>Following</span>
+                    <strong>{followingUids.length}</strong>
+                    <span>Following</span>
                   </button>
                 </div>
 
@@ -1391,9 +1374,14 @@ function App() {
                           {person ? (
                             <>
                               <Avatar name={person.displayName} photoURL={person.photoURL} small />
-                              <span><strong>{person.displayName}</strong><small>@{person.username}</small></span>
+                              <span>
+                                <strong>{person.displayName}</strong>
+                                <small>@{person.username}</small>
+                              </span>
                             </>
-                          ) : <span><small>Loading member profile…</small></span>}
+                          ) : (
+                            <span><small>Loading member profile…</small></span>
+                          )}
                           {relationshipView === 'following' && (
                             <button onClick={() => person && void toggleFollow(person)}>Unfollow</button>
                           )}
@@ -1406,74 +1394,117 @@ function App() {
                   </div>
                 )}
 
-                <div className="pulse-settings-card">
-                  <div className="pulse-settings-heading">
-                    <div>
-                      <strong>Edit your profile</strong>
-                      <p>Update your display name, username and biography.</p>
+                <div className="pulse-profile-post-heading">
+                  <strong>Your posts</strong>
+                  <span>{profilePosts.length}</span>
+                </div>
+                <div className="pulse-profile-post-grid">
+                  {profilePosts.map(post => (
+                    <article className="pulse-profile-post-tile" key={post.id}>
+                      {post.postType === 'image' && post.mediaURL ? (
+                        <img src={post.mediaURL} alt="Your post" loading="lazy" />
+                      ) : post.postType === 'video' && post.mediaURL ? (
+                        <video src={post.mediaURL} controls preload="metadata" />
+                      ) : (
+                        <p>{post.caption || 'Post'}</p>
+                      )}
+                    </article>
+                  ))}
+                  {profilePosts.length === 0 && (
+                    <div className="pulse-profile-no-posts">
+                      Your published posts will appear here.
                     </div>
-                  </div>
-                  {!editingProfile ? (
-                    <button onClick={() => {
-                      setEditDisplayName(profile?.displayName ?? displayName);
-                      setEditUsername(profile?.username ?? '');
-                      setEditBio(profile?.bio ?? '');
-                      setEditingProfile(true);
-                    }}>
-                      Edit profile details
-                    </button>
-                  ) : (
-                    <form className="pulse-profile-edit-form" onSubmit={event => {
-                      event.preventDefault();
-                      void saveProfile();
-                    }}>
-                      <label>Display name
-                        <input value={editDisplayName} onChange={event => setEditDisplayName(event.target.value)} maxLength={60} required />
-                      </label>
-                      <label>Username
-                        <input value={editUsername} onChange={event => setEditUsername(event.target.value)} maxLength={30} required />
-                      </label>
-                      <label>Bio
-                        <textarea value={editBio} onChange={event => setEditBio(event.target.value)} maxLength={160} rows={3} />
-                        <small>{editBio.length}/160</small>
-                      </label>
-                      <div className="pulse-profile-actions">
-                        <button type="button" onClick={() => setEditingProfile(false)}>Cancel</button>
-                        <button type="submit" disabled={profileSaving}>{profileSaving ? 'Saving…' : 'Save profile'}</button>
-                      </div>
-                    </form>
                   )}
                 </div>
 
-                <div className="pulse-settings-card">
-                  <div className="pulse-settings-heading">
-                    <ShieldCheck size={20} />
-                    <div>
-                      <strong>Discoverability</strong>
-                      <p>Control whether other PULSE members can find your public profile in Explore.</p>
-                    </div>
-                  </div>
-
+                <section className="pulse-profile-settings">
                   <button
-                    className={`pulse-privacy-toggle ${profile?.discoverable ? 'enabled' : ''}`}
-                    onClick={() => void toggleDiscoverability()}
-                    disabled={privacyBusy || !profile}
-                    aria-pressed={Boolean(profile?.discoverable)}
+                    type="button"
+                    className="pulse-profile-settings-trigger"
+                    aria-expanded={profileSettingsOpen}
+                    onClick={() => setProfileSettingsOpen(value => !value)}
                   >
-                    <span>{profile?.discoverable ? 'Discoverable' : 'Hidden from Explore'}</span>
-                    <span className="pulse-toggle-track"><i /></span>
+                    <span>
+                      <strong><Settings size={17} /> Profile settings</strong>
+                      <small>Edit your details, photo and discoverability</small>
+                    </span>
+                    <ChevronDown size={18} className={profileSettingsOpen ? 'pulse-chevron-open' : ''} />
                   </button>
-                  <p className="pulse-privacy-explanation">
-                    {profile?.discoverable
-                      ? 'Your public profile can appear in member discovery. Your email address remains private.'
-                      : 'Your profile is excluded from member discovery. You can turn discoverability back on at any time.'}
-                  </p>
-                </div>
 
+                  {profileSettingsOpen && (
+                    <div className="pulse-profile-settings-content">
+                      <div className="pulse-settings-card">
+                        <div className="pulse-settings-heading">
+                          <div>
+                            <strong>Edit your profile</strong>
+                            <p>Update your display name, username and biography.</p>
+                          </div>
+                        </div>
+                        {!editingProfile ? (
+                          <button onClick={() => {
+                            setEditDisplayName(profile?.displayName ?? displayName);
+                            setEditUsername(profile?.username ?? '');
+                            setEditBio(profile?.bio ?? '');
+                            setEditingProfile(true);
+                          }}>
+                            Edit profile details
+                          </button>
+                        ) : (
+                          <form className="pulse-profile-edit-form" onSubmit={event => {
+                            event.preventDefault();
+                            void saveProfile();
+                          }}>
+                            <label>Display name
+                              <input value={editDisplayName} onChange={event => setEditDisplayName(event.target.value)} maxLength={60} required />
+                            </label>
+                            <label>Username
+                              <input value={editUsername} onChange={event => setEditUsername(event.target.value)} maxLength={30} required />
+                            </label>
+                            <label>Bio
+                              <textarea value={editBio} onChange={event => setEditBio(event.target.value)} maxLength={160} rows={3} />
+                              <small>{editBio.length}/160</small>
+                            </label>
+                            <div className="pulse-profile-actions">
+                              <button type="button" onClick={() => setEditingProfile(false)}>Cancel</button>
+                              <button type="submit" disabled={profileSaving}>
+                                {profileSaving ? 'Saving…' : 'Save profile'}
+                              </button>
+                            </div>
+                          </form>
+                        )}
+                      </div>
+
+                      <div className="pulse-settings-card">
+                        <div className="pulse-settings-heading">
+                          <ShieldCheck size={20} />
+                          <div>
+                            <strong>Discoverability</strong>
+                            <p>Control whether other PULSE members can find your public profile.</p>
+                          </div>
+                        </div>
+                        <button
+                          className={`pulse-privacy-toggle ${profile?.discoverable ? 'enabled' : ''}`}
+                          onClick={() => void toggleDiscoverability()}
+                          disabled={privacyBusy || !profile}
+                          aria-pressed={Boolean(profile?.discoverable)}
+                        >
+                          <span>{profile?.discoverable ? 'Discoverable' : 'Hidden from Explore'}</span>
+                          <span className="pulse-toggle-track"><i /></span>
+                        </button>
+                        <p className="pulse-privacy-explanation">
+                          {profile?.discoverable
+                            ? 'Your public profile can be found by other members. Your email address remains private.'
+                            : 'Your profile is excluded from member discovery. You can turn discoverability back on at any time.'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </section>
               </>
             )}
           </section>
         )}
+
       </main>
 
       <nav className="pulse-bottom-nav" aria-label="Main navigation">
