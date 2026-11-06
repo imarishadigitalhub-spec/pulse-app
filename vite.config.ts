@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['pulse-icon.svg'],
+      includeAssets: ['pulse-icon.svg', 'pulse-icon-192.png', 'pulse-icon-512.png'],
       manifest: {
         name: 'PULSE — Your people. Your moments. Your world.',
         short_name: 'PULSE',
@@ -18,6 +18,18 @@ export default defineConfig({
         orientation: 'portrait',
         start_url: '/',
         icons: [
+          {
+            src: '/pulse-icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: '/pulse-icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any'
+          },
           {
             src: '/pulse-icon.svg',
             sizes: 'any',
