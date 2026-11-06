@@ -795,9 +795,7 @@ function App() {
             aria-label="Open account menu"
             onClick={() => setAccountMenuOpen(value => !value)}
           >
-            <span>{displayName}</span>
             <Avatar name={displayName} photoURL={profile?.photoURL} small />
-            <ChevronDown size={15} />
           </button>
 
           {accountMenuOpen && (
@@ -855,12 +853,8 @@ function App() {
         {activeTab === 'Chats' && (
           <section className={`pulse-chat-layout ${selectedId ? 'conversation-open' : ''}`}>
               <div className={`pulse-inbox ${selectedId ? "pulse-inbox-hidden" : ""}`}>
-              <div className="pulse-page-heading">
-                <div>
-                  <span className="pulse-eyebrow">YOUR PEOPLE</span>
-                  <h1>Chats</h1>
-                  <p>Your conversations, together in one inbox.</p>
-                </div>
+              <div className="pulse-page-heading pulse-people-heading">
+                <h1>Your people</h1>
                 <button
                   type="button"
                   className="pulse-new-conversation"
