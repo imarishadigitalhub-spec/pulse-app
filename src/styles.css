@@ -2503,25 +2503,6 @@ img, video { max-width: 100%; }
   align-items: center;
   gap: 12px;
 }
-.pulse-install-button {
-  min-height: 38px;
-  padding: 0 13px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: 1px solid #315da9;
-  border-radius: 10px;
-  background: #14264a;
-  color: #dceaff;
-  font-size: 12px;
-  font-weight: 650;
-  cursor: pointer;
-}
-.pulse-install-button:hover {
-  background: #1b3768;
-  border-color: #4b86ed;
-}
 .pulse-chat-heading {
   display: flex;
   align-items: center;
@@ -2546,92 +2527,8 @@ img, video { max-width: 100%; }
   opacity: .55;
   cursor: not-allowed;
 }
-.pulse-install-overlay {
-  position: fixed;
-  z-index: 200;
-  inset: 0;
-  padding: 18px;
-  display: grid;
-  place-items: center;
-  background: #03060dcc;
-  backdrop-filter: blur(8px);
-}
-.pulse-install-dialog {
-  width: min(470px, 100%);
-  max-height: min(82dvh, 760px);
-  overflow-y: auto;
-  padding: 22px;
-  border: 1px solid #303c54;
-  border-radius: 18px;
-  background: #101725;
-  color: #eef3ff;
-  box-shadow: 0 24px 80px #000a;
-}
-.pulse-install-dialog-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 17px;
-}
-.pulse-install-dialog-heading strong {
-  font-size: 18px;
-}
-.pulse-install-dialog-heading p,
-.pulse-install-note {
-  color: #9ba8bf;
-  font-size: 12px;
-  line-height: 1.6;
-}
-.pulse-install-dialog-heading p { margin: 7px 0 0; }
-.pulse-install-dialog-heading > button {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 9px;
-  background: #1d293c;
-  color: #dbe6f8;
-  cursor: pointer;
-}
-.pulse-install-platform {
-  padding: 14px 0;
-  border-top: 1px solid #29354a;
-}
-.pulse-install-platform strong {
-  font-size: 13px;
-}
-.pulse-install-platform ol {
-  margin: 9px 0 0;
-  padding-left: 21px;
-  color: #b9c5d9;
-  font-size: 12px;
-  line-height: 1.8;
-}
-.pulse-install-platform button {
-  margin-top: 12px;
-  min-height: 40px;
-  padding: 0 14px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  border-radius: 10px;
-  background: #2563eb;
-  color: white;
-  font-weight: 650;
-  cursor: pointer;
-}
-.pulse-install-note {
-  padding-top: 12px;
-  border-top: 1px solid #29354a;
-}
 @media (max-width: 520px) {
   .pulse-topbar-actions { gap: 6px; }
-  .pulse-install-button { min-height: 36px; padding: 0 10px; }
-  .pulse-install-button span { font-size: 11px; }
   .pulse-chat-call-actions { gap: 4px; }
   .pulse-chat-call-actions button { width: 34px; height: 34px; }
-  .pulse-install-dialog { padding: 18px; }
 }

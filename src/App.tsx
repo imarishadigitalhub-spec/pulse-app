@@ -15,8 +15,6 @@ import {
   Send,
   ShieldCheck,
   UserRound,
-  Download,
-  X,
   Phone,
   Video,
 } from 'lucide-react';
@@ -53,10 +51,6 @@ import {
   type PulseConversationPreference,
 } from './lib/pulse-data';
 
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
-};
 
 type Tab = 'Chats' | 'Explore' | 'Create' | 'Activity' | 'Profile';
 
@@ -184,33 +178,6 @@ function App() {
   const [sending, setSending] = useState(false);
   const [privacyBusy, setPrivacyBusy] = useState(false);
   const [error, setError] = useState('');
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [installGuideOpen, setInstallGuideOpen] = useState(false);
-  const [isInstalled, setIsInstalled] = useState(false);
-
-  useEffect(() => {
-    const standalone = window.matchMedia('(display-mode: standalone)').matches
-      || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
-    setIsInstalled(standalone);
-
-    const handleBeforeInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as BeforeInstallPromptEvent);
-    };
-    const handleAppInstalled = () => {
-      setIsInstalled(true);
-      setInstallPrompt(null);
-      setInstallGuideOpen(false);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
-    };
-  }, []);
-
   // Keep conversation navigation in browser history so Android Back,
   // browser Back and installed-PWA Back return to the previous chat state.
   useEffect(() => {
@@ -865,23 +832,6 @@ function App() {
     user?.displayName ||
     'PULSE member';
 
-  const handleInstallClick = async () => {
-    if (!installPrompt) {
-      setInstallGuideOpen(true);
-      return;
-    }
-
-    try {
-      await installPrompt.prompt();
-      const choice = await installPrompt.userChoice;
-      setInstallPrompt(null);
-      if (choice.outcome === 'accepted') setIsInstalled(true);
-      else setInstallGuideOpen(true);
-    } catch {
-      setInstallGuideOpen(true);
-    }
-  };
-
   if (!authReady || booting) {
     return (
       <main className="pulse-loading">
@@ -919,17 +869,6 @@ function App() {
         </button>
 
         <div className="pulse-topbar-actions">
-          {!isInstalled && (
-            <button
-              type="button"
-              className="pulse-install-button"
-              onClick={() => void handleInstallClick()}
-              aria-label="Install PULSE on this device"
-            >
-              <Download size={16} />
-              <span>Install</span>
-            </button>
-          )}
           <div className="pulse-account-menu-wrap">
           <button
             type="button"
@@ -1673,80 +1612,6 @@ function App() {
         )}
 
       </main>
-
-      {installGuideOpen && (
-        <div
-          className="pulse-install-overlay"
-          role="presentation"
-          onMouseDown={event => {
-            if (event.target === event.currentTarget) setInstallGuideOpen(false);
-          }}
-        >
-          <section
-            className="pulse-install-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="pulse-install-title"
-          >
-            <div className="pulse-install-dialog-heading">
-              <div>
-                <strong id="pulse-install-title">Install PULSE</strong>
-                <p>Add PULSE to your device for a faster, app-like experience.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setInstallGuideOpen(false)}
-                aria-label="Close installation guide"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {installPrompt ? (
-              <div className="pulse-install-platform">
-                <strong>Ready to install</strong>
-                <p>Your browser supports the PULSE installation prompt.</p>
-                <button type="button" onClick={() => void handleInstallClick()}>
-                  <Download size={16} /> Install PULSE
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="pulse-install-platform">
-                  <strong>iPhone and iPad</strong>
-                  <ol>
-                    <li>Open this website in Safari.</li>
-                    <li>Tap the Share button.</li>
-                    <li>Choose <b>Add to Home Screen</b>.</li>
-                    <li>Tap Add to finish.</li>
-                  </ol>
-                </div>
-                <div className="pulse-install-platform">
-                  <strong>Android</strong>
-                  <ol>
-                    <li>Open PULSE in Chrome.</li>
-                    <li>Open the browser menu.</li>
-                    <li>Choose <b>Install app</b> or <b>Add to Home screen</b>.</li>
-                  </ol>
-                </div>
-                <div className="pulse-install-platform">
-                  <strong>Windows</strong>
-                  <ol>
-                    <li>Open PULSE in Microsoft Edge or Chrome.</li>
-                    <li>Open the browser menu.</li>
-                    <li>Choose <b>Install PULSE</b> or <b>Install this site as an app</b>.</li>
-                  </ol>
-                </div>
-                <p className="pulse-install-note">
-                  Installation options depend on browser support and eligibility.
-                  On iPhone and iPad, use Safari's Add to Home Screen option;
-                  iOS does not provide the same automatic install prompt.
-                </p>
-              </>
-            )}
-          </section>
-        </div>
-      )}
 
       {!(activeTab === 'Chats' && selectedId) && (
       <nav className="pulse-bottom-nav" aria-label="Main navigation">
