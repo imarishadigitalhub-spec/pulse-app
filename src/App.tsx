@@ -844,7 +844,7 @@ function App() {
         </div>
       </header>
 
-      <main className="pulse-content">
+      <main className={`pulse-content ${activeTab === 'Chats' ? 'pulse-content-chats' : ''}`}>
         {error && (
           <div className="pulse-error" role="alert">
             <span>{error}</span>
