@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
   PlusSquare,
@@ -154,6 +154,9 @@ function App() {
   const [messages, setMessages] = useState<PulseMessage[]>([]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const conversationHistoryRef = useRef<string | null>(null);
+  const handlingPopStateRef = useRef(false);
+
   const [viewedProfile, setViewedProfile] = useState<PublicProfile | null>(null);
   const [messageText, setMessageText] = useState('');
   const [posts, setPosts] = useState<PulsePost[]>([]);
@@ -172,6 +175,81 @@ function App() {
   const [sending, setSending] = useState(false);
   const [privacyBusy, setPrivacyBusy] = useState(false);
   const [error, setError] = useState('');
+
+  // Keep conversation navigation in browser history so Android Back,
+  // browser Back and installed-PWA Back return to the previous chat state.
+  useEffect(() => {
+    if (handlingPopStateRef.current) {
+      handlingPopStateRef.current = false;
+      conversationHistoryRef.current = selectedId;
+      return;
+    }
+
+    if (!selectedId) {
+      const currentState = window.history.state;
+      if (currentState && typeof currentState === 'object'
+          && 'pulseConversationId' in currentState) {
+        const nextState = { ...currentState };
+        delete nextState.pulseConversationId;
+        window.history.replaceState(nextState, '', window.location.href);
+      }
+      conversationHistoryRef.current = null;
+      return;
+    }
+
+    if (conversationHistoryRef.current === selectedId) return;
+
+    window.history.pushState(
+      {
+        ...(window.history.state && typeof window.history.state === 'object'
+          ? window.history.state
+          : {}),
+        pulseConversationId: selectedId,
+      },
+      '',
+      window.location.href,
+    );
+    conversationHistoryRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    function handleBrowserBack(event: PopStateEvent) {
+      // A contact profile opened from a conversation is the top navigation layer.
+      if (selectedId && activeTab === 'Profile' && viewedProfile) {
+        setViewedProfile(null);
+        setActiveTab('Chats');
+        return;
+      }
+
+      if (selectedId) {
+        const previousId =
+          event.state && typeof event.state === 'object'
+            ? event.state.pulseConversationId
+            : null;
+
+        handlingPopStateRef.current = true;
+
+        if (typeof previousId === 'string' && previousId.length > 0) {
+          conversationHistoryRef.current = previousId;
+          setSelectedId(previousId);
+        } else {
+          conversationHistoryRef.current = null;
+          setSelectedId(null);
+        }
+
+        setActiveTab('Chats');
+        return;
+      }
+
+      // Close transient account UI before allowing the browser to leave PULSE.
+      if (accountMenuOpen) setAccountMenuOpen(false);
+      if (showNewChat) setShowNewChat(false);
+      if (profileSettingsOpen) setProfileSettingsOpen(false);
+    }
+
+    window.addEventListener('popstate', handleBrowserBack);
+    return () => window.removeEventListener('popstate', handleBrowserBack);
+  }, [selectedId, activeTab, viewedProfile, accountMenuOpen, showNewChat, profileSettingsOpen]);
 
   useEffect(() => {
     if (!auth) {
@@ -1022,8 +1100,17 @@ function App() {
                       disabled={!selectedPerson}
                       onClick={() => {
                         if (!selectedPerson) return;
+                        window.history.pushState(
+                          {
+                            ...(window.history.state && typeof window.history.state === 'object'
+                              ? window.history.state
+                              : {}),
+                            pulseContactProfile: true,
+                          },
+                          '',
+                          window.location.href,
+                        );
                         setViewedProfile(selectedPerson);
-
                         setActiveTab('Profile');
                       }}
                     >
