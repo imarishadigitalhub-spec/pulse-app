@@ -2366,3 +2366,125 @@ img, video { max-width: 100%; }
     min-height: 0 !important;
   }
 }
+
+
+/* PULSE Milestone 1: immersive conversation screen */
+.pulse-live-app > .pulse-topbar {
+  flex-shrink: 0;
+}
+
+.pulse-content-chats.pulse-conversation-active {
+  padding: 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  flex: 1 1 0 !important;
+}
+
+.pulse-conversation-active .pulse-chat-layout,
+.pulse-conversation-active .pulse-chat-window {
+  min-height: 0 !important;
+  height: 100% !important;
+  flex: 1 1 0 !important;
+}
+
+.pulse-conversation-active .pulse-chat-heading {
+  flex: 0 0 58px !important;
+  min-height: 58px !important;
+  height: 58px !important;
+  padding: 5px 14px !important;
+  display: flex;
+  align-items: center;
+  background: #0c101a;
+  border-bottom: 1px solid #252b3b;
+}
+
+.pulse-conversation-active .pulse-chat-profile-trigger {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pulse-conversation-active .pulse-chat-profile-trigger .pulse-avatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+}
+
+.pulse-conversation-active .pulse-chat-profile-trigger strong {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.pulse-conversation-active .pulse-chat-profile-trigger small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+.pulse-conversation-active .pulse-message-list {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding-top: 10px;
+  padding-bottom: 12px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pulse-conversation-active .pulse-composer {
+  flex: 0 0 auto !important;
+  min-height: 58px !important;
+  padding: 7px 10px max(7px, env(safe-area-inset-bottom)) !important;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #0c101a;
+  border-top: 1px solid #252b3b;
+}
+
+.pulse-conversation-active .pulse-composer input:not([type="file"]) {
+  min-width: 0;
+  min-height: 42px;
+  padding: 9px 12px;
+  border-radius: 22px;
+}
+
+.pulse-conversation-active .pulse-composer button,
+.pulse-conversation-active .pulse-attachment-button {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.pulse-conversation-active .pulse-upload-progress {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  background: #0c101a;
+}
+
+@media (max-width: 760px) {
+  .pulse-conversation-active .pulse-chat-heading {
+    flex-basis: 54px !important;
+    min-height: 54px !important;
+    height: 54px !important;
+    padding: 4px 12px !important;
+  }
+
+  .pulse-conversation-active .pulse-chat-profile-trigger .pulse-avatar {
+    width: 38px;
+    height: 38px;
+    flex-basis: 38px;
+  }
+
+  .pulse-conversation-active .pulse-composer {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+}

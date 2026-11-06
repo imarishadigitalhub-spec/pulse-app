@@ -773,6 +773,7 @@ function App() {
 
   return (
     <div className="pulse-live-app">
+      {!(activeTab === 'Chats' && selectedId) && (
       <header className="pulse-topbar">
         <button
           type="button"
@@ -841,8 +842,10 @@ function App() {
           )}
         </div>
       </header>
+      )}
 
-      <main className={`pulse-content ${activeTab === 'Chats' ? 'pulse-content-chats' : ''}`}>
+      <main className={`pulse-content ${activeTab === 'Chats' ? 'pulse-content-chats' : ''} ${activeTab === 'Chats' && selectedId ? 'pulse-conversation-active' : ''}`}>
+
         {error && (
           <div className="pulse-error" role="alert">
             <span>{error}</span>
@@ -1068,6 +1071,12 @@ function App() {
                     })}
                   </div>
 
+                  {attachmentBusy && (
+                    <div className="pulse-upload-progress">
+                      <span>Uploading attachment… {attachmentProgress}%</span>
+                      <progress value={attachmentProgress} max="100" />
+                    </div>
+                  )}
                   <form
                     className="pulse-composer"
                     onSubmit={event => {
@@ -1110,12 +1119,6 @@ function App() {
                       <Send size={18} />
                     </button>
                   </form>
-                  {attachmentBusy && (
-                    <div className="pulse-upload-progress">
-                      <span>Uploading attachment… {attachmentProgress}%</span>
-                      <progress value={attachmentProgress} max="100" />
-                    </div>
-                  )}
                 </>
               </div>
             )}
@@ -1501,6 +1504,7 @@ function App() {
 
       </main>
 
+      {!(activeTab === 'Chats' && selectedId) && (
       <nav className="pulse-bottom-nav" aria-label="Main navigation">
         {tabs.map(({ label, icon: Icon }) => (
           <button
@@ -1527,6 +1531,7 @@ function App() {
           </button>
         ))}
       </nav>
+      )}
     </div>
   );
 }
