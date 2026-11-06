@@ -2246,7 +2246,14 @@ img, video { max-width: 100%; }
   min-height: 72px;
   padding: 10px 9px !important;
   border-radius: 0 !important;
-  border-bottom: 1px solid #1b202b !important;
+  border: 0 !important;
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+}
+
+.pulse-content-chats .pulse-conversation:hover,
+.pulse-content-chats .pulse-conversation.active {
+  background: #141b29 !important;
 }
 
 .pulse-content-chats .pulse-conversation-open {

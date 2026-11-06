@@ -536,7 +536,7 @@ export async function sendTextMessage(
 
 /**
  * Upload a real conversation attachment and create its message record.
- * Storage rules must permit the conversationAttachments path before this works.
+ * Cleans up the Storage object if its message record cannot be created.
  */
 export async function uploadConversationAttachment(
   conversationId: string,
@@ -549,7 +549,32 @@ export async function uploadConversationAttachment(
   }
   if (!storage) throw new Error('Firebase Storage is not configured.');
 
-  const contentType = file.type || 'application/octet-stream';
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+  const mimeByExtension: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    mp4: 'video/mp4',
+    mov: 'video/quicktime',
+    webm: 'video/webm',
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    txt: 'text/plain',
+  };
+
+  const reportedType = file.type.trim().toLowerCase();
+  const contentType =
+    !reportedType || reportedType === 'application/octet-stream'
+      ? mimeByExtension[extension] ?? reportedType
+      : reportedType;
+
   const isImage = contentType.startsWith('image/');
   const isVideo = contentType.startsWith('video/');
   const isDocument = [
@@ -569,8 +594,12 @@ export async function uploadConversationAttachment(
   if (file.size > maxSize * 1024 * 1024) {
     throw new Error(`This file is too large. The limit is ${maxSize} MB.`);
   }
+  if (file.size === 0) {
+    throw new Error('This file is empty. Choose another file.');
+  }
 
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || 'attachment';
+  const safeName =
+    file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || 'attachment';
   const path = `conversationAttachments/${conversationId}/${senderId}/${Date.now()}_${safeName}`;
   const fileRef = ref(storage, path);
   const task = uploadBytesResumable(fileRef, file, { contentType });
@@ -580,7 +609,7 @@ export async function uploadConversationAttachment(
       'state_changed',
       snapshot => {
         const percentage = snapshot.totalBytes
-          ? Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100)
+          ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
           : 0;
         onProgress?.(percentage);
       },
@@ -589,23 +618,33 @@ export async function uploadConversationAttachment(
     );
   });
 
-  const url = await getDownloadURL(task.snapshot.ref);
-  const messageType = isImage ? 'image' : isVideo ? 'video' : 'document';
+  try {
+    const url = await getDownloadURL(task.snapshot.ref);
+    const messageType = isImage ? 'image' : isVideo ? 'video' : 'document';
 
-  await addDoc(
-    collection(database(), 'conversations', conversationId, 'messages'),
-    {
-      senderId,
-      text: file.name,
-      type: messageType,
-      attachmentURL: url,
-      attachmentName: file.name,
-      attachmentPath: path,
-      attachmentContentType: contentType,
-      attachmentSize: file.size,
-      createdAt: serverTimestamp(),
-    },
-  );
+    await addDoc(
+      collection(database(), 'conversations', conversationId, 'messages'),
+      {
+        senderId,
+        text: file.name,
+        type: messageType,
+        attachmentURL: url,
+        attachmentName: file.name,
+        attachmentPath: path,
+        attachmentContentType: contentType,
+        attachmentSize: file.size,
+        createdAt: serverTimestamp(),
+      },
+    );
+  } catch (error) {
+    // Preserve the original message-creation error if cleanup also fails.
+    try {
+      await deleteObject(task.snapshot.ref);
+    } catch {
+      // The upload may already have been removed or Storage may be unavailable.
+    }
+    throw error;
+  }
 }
 
 /** Publish a real post owned by the signed-in member. */
