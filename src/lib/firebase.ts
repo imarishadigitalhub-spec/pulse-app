@@ -2,6 +2,7 @@ import { initializeApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { getDatabase } from 'firebase/database';
 
 const config = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -10,9 +11,18 @@ const config = {
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
 };
 
-export const firebaseConfigured = Object.values(config).every(Boolean);
+// Realtime Database is optional: it must never disable existing Firebase services.
+export const firebaseConfigured = Boolean(
+  config.apiKey &&
+  config.authDomain &&
+  config.projectId &&
+  config.storageBucket &&
+  config.messagingSenderId &&
+  config.appId
+);
 
 export const firebaseApp = firebaseConfigured
   ? (getApps()[0] ?? initializeApp(config))
@@ -21,3 +31,8 @@ export const firebaseApp = firebaseConfigured
 export const auth = firebaseApp ? getAuth(firebaseApp) : null;
 export const db = firebaseApp ? getFirestore(firebaseApp) : null;
 export const storage = firebaseApp ? getStorage(firebaseApp) : null;
+
+export const rtdb =
+  firebaseApp && config.databaseURL
+    ? getDatabase(firebaseApp, config.databaseURL)
+    : null;

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { auth } from './lib/firebase';
+import { startPresence, setPresenceVisibility, watchPresence, type ContactPresence } from './lib/pulse-presence';
 import {
   publishUserProfile,
   uploadProfilePhoto,
@@ -130,6 +131,42 @@ function inboxDateLabel(value: unknown): string {
   return date.toLocaleDateString([], { weekday: 'long' });
 }
 
+function formatPresenceLastSeen(timestamp: number | null, now: number): string {
+  if (!timestamp) return 'Last seen unavailable';
+
+  const elapsed = Math.max(0, now - timestamp);
+  const minutes = Math.floor(elapsed / 60000);
+
+  if (minutes < 1) return 'Last seen just now';
+  if (minutes < 60) return `Last seen ${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Last seen ${hours}h ago`;
+
+  const date = new Date(timestamp);
+  const today = new Date(now);
+  const yesterday = new Date(now);
+  yesterday.setDate(today.getDate() - 1);
+
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const time = date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+  if (sameDay(date, yesterday)) return `Last seen yesterday at ${time}`;
+
+  return `Last seen ${date.toLocaleDateString([], {
+    day: 'numeric',
+    month: 'short',
+    year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric',
+  })} at ${time}`;
+}
+
 function App() {
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
   const [authReady, setAuthReady] = useState(Boolean(auth?.currentUser));
@@ -155,6 +192,17 @@ function App() {
   const [latestMessages, setLatestMessages] = useState<Record<string, PulseMessage | null>>({});
   const [conversationPreferences, setConversationPreferences] = useState<Record<string, PulseConversationPreference>>({});
   const [messages, setMessages] = useState<PulseMessage[]>([]);
+  const [contactPresence, setContactPresence] = useState<ContactPresence>({
+    online: false,
+    available: false,
+    lastSeen: null,
+  });
+  const [presenceNow, setPresenceNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setPresenceNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const conversationHistoryRef = useRef<string | null>(null);
@@ -265,6 +313,22 @@ function App() {
       setAuthReady(true);
     });
   }, []);
+
+  // Each signed-in device maintains its own Realtime Database connection.
+  useEffect(() => {
+    if (!user) return;
+    return startPresence(user.uid);
+  }, [user?.uid]);
+
+  // Mirror the account's existing discoverability preference into presence privacy.
+  useEffect(() => {
+    if (!user || !profile) return;
+
+    setPresenceVisibility(user.uid, profile.discoverable).catch(error => {
+      console.error('PULSE presence privacy update failed:', error);
+    });
+  }, [user?.uid, profile?.discoverable]);
+
 
   useEffect(() => {
     if (!user) {
@@ -630,6 +694,20 @@ function App() {
   const selectedPerson = selectedConversation
     ? peopleByUid.get(otherUid(selectedConversation))
     : undefined;
+
+  useEffect(() => {
+    if (!user || !selectedPerson) {
+      setContactPresence({ online: false, available: false, lastSeen: null });
+      return;
+    }
+
+    return watchPresence(
+      selectedPerson.uid,
+      setContactPresence,
+      error => console.error('PULSE contact presence:', error),
+    );
+  }, [user?.uid, selectedPerson?.uid]);
+
 
   async function openMessage(person: PublicProfile) {
     if (!user) return;
@@ -1125,6 +1203,14 @@ function App() {
                       <span>
                         <strong>{selectedPerson?.displayName ?? 'PULSE member'}</strong>
                         <small>{selectedPerson ? `@${selectedPerson.username}` : 'Private conversation'}</small>
+                        {selectedPerson && contactPresence.available && (
+                          <small className={`pulse-contact-presence ${contactPresence.online ? 'online' : 'offline'}`}>
+                            <span />
+                            {contactPresence.online
+                              ? 'Online'
+                              : formatPresenceLastSeen(contactPresence.lastSeen, presenceNow)}
+                          </small>
+                        )}
                       </span>
                     </button>
                     <div className="pulse-chat-call-actions">

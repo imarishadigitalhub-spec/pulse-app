@@ -2532,3 +2532,65 @@ img, video { max-width: 100%; }
   .pulse-chat-call-actions { gap: 4px; }
   .pulse-chat-call-actions button { width: 34px; height: 34px; }
 }
+
+/* PULSE communication milestone: contact identity and network status */
+.pulse-conversation-active .pulse-chat-heading {
+  justify-content: flex-start !important;
+  gap: 12px;
+}
+
+.pulse-conversation-active .pulse-chat-profile-trigger {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.pulse-conversation-active .pulse-chat-call-actions {
+  flex: 0 0 auto;
+  margin-left: 2px;
+}
+
+@media (max-width: 520px) {
+  .pulse-conversation-active .pulse-chat-heading {
+    gap: 7px;
+    padding-left: 9px !important;
+    padding-right: 9px !important;
+  }
+
+  .pulse-conversation-active .pulse-chat-call-actions {
+    gap: 3px;
+  }
+
+  .pulse-conversation-active .pulse-chat-call-actions button {
+    width: 32px;
+    height: 32px;
+  }
+
+}
+
+
+/* Live PULSE contact presence */
+.pulse-contact-presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.pulse-contact-presence > span {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #737373;
+}
+
+.pulse-contact-presence.online > span {
+  background: #22c55e;
+  box-shadow: 0 0 7px rgba(34, 197, 94, .35);
+}
+
+.pulse-contact-presence.offline > span {
+  background: #737373;
+}

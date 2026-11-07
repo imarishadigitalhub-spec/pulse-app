@@ -1,0 +1,23 @@
+{
+  "rules": {
+    "presence": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || data.child('visibility').val() === 'public')",
+        "visibility": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.isString() && (newData.val() === 'public' || newData.val() === 'private')"
+        },
+        "connections": {
+          "$connectionId": {
+            ".write": "auth != null && auth.uid === $uid",
+            ".validate": "newData.hasChild('connectedAt')"
+          }
+        },
+        "lastSeen": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.isNumber()"
+        }
+      }
+    }
+  }
+}
