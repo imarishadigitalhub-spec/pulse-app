@@ -11,6 +11,37 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function validConversationAppearance(appearance, uid) {
+      return appearance is map
+        && appearance.keys().hasOnly([
+          'theme', 'background', 'fontSize', 'bubbleStyle',
+          'wallpaperURL', 'wallpaperPath'
+        ])
+        && appearance.theme in ['midnight', 'ocean', 'light']
+        && appearance.background in ['plain', 'gradient', 'dots']
+        && appearance.fontSize in ['small', 'medium', 'large']
+        && appearance.bubbleStyle in ['rounded', 'soft', 'square']
+        && (
+          !appearance.keys().hasAny(['wallpaperURL', 'wallpaperPath'])
+          || (
+            appearance.wallpaperURL == null
+            && appearance.wallpaperPath == null
+          )
+          || (
+            appearance.wallpaperURL is string
+            && appearance.wallpaperURL.size() <= 2048
+            && appearance.wallpaperURL.matches(
+              '^https://firebasestorage[.]googleapis[.]com/.*$'
+            )
+            && appearance.wallpaperPath is string
+            && appearance.wallpaperPath.size() <= 512
+            && appearance.wallpaperPath.matches(
+              '^conversationWallpapers/' + uid + '/[A-Za-z0-9._/-]+$'
+            )
+          )
+        );
+    }
+
     function isFollowedByViewer(uid) {
       return signedIn()
         && exists(
@@ -98,7 +129,7 @@ service cloud.firestore {
 
         allow create: if isOwner(uid)
           && request.resource.data.keys().hasOnly([
-            'pinned', 'lastReadAt', 'updatedAt'
+            'pinned', 'lastReadAt', 'updatedAt', 'appearance'
           ])
           && (
             !request.resource.data.keys().hasAny(['pinned'])
@@ -111,11 +142,15 @@ service cloud.firestore {
           && (
             !request.resource.data.keys().hasAny(['updatedAt'])
             || request.resource.data.updatedAt is timestamp
+          )
+          && (
+            !request.resource.data.keys().hasAny(['appearance'])
+            || validConversationAppearance(request.resource.data.appearance, uid)
           );
 
         allow update: if isOwner(uid)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'pinned', 'lastReadAt', 'updatedAt'
+            'pinned', 'lastReadAt', 'updatedAt', 'appearance'
           ])
           && (
             !request.resource.data.keys().hasAny(['pinned'])
@@ -128,6 +163,10 @@ service cloud.firestore {
           && (
             !request.resource.data.keys().hasAny(['updatedAt'])
             || request.resource.data.updatedAt is timestamp
+          )
+          && (
+            !request.resource.data.keys().hasAny(['appearance'])
+            || validConversationAppearance(request.resource.data.appearance, uid)
           );
 
         allow delete: if isOwner(uid);

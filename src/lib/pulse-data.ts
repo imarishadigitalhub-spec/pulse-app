@@ -414,10 +414,20 @@ export function watchLatestMessage(
 }
 
 
+export type PulseConversationAppearance = {
+  theme: 'midnight' | 'ocean' | 'light';
+  background: 'plain' | 'gradient' | 'dots';
+  fontSize: 'small' | 'medium' | 'large';
+  bubbleStyle: 'rounded' | 'soft' | 'square';
+  wallpaperURL?: string | null;
+  wallpaperPath?: string | null;
+};
+
 export type PulseConversationPreference = {
   id: string;
   pinned?: boolean;
   lastReadAt?: unknown;
+  appearance?: PulseConversationAppearance;
   updatedAt?: unknown;
 };
 
@@ -456,6 +466,61 @@ export async function setConversationPinned(
     { pinned, updatedAt: serverTimestamp() },
     { merge: true },
   );
+}
+
+export async function setConversationAppearance(
+  uid: string,
+  conversationId: string,
+  appearance: PulseConversationAppearance,
+): Promise<void> {
+  await setDoc(
+    doc(database(), 'users', uid, 'conversationPreferences', conversationId),
+    { appearance, updatedAt: serverTimestamp() },
+    { merge: true },
+  );
+}
+
+export async function uploadConversationWallpaper(
+  uid: string,
+  conversationId: string,
+  file: File,
+): Promise<{ url: string; path: string }> {
+  if (!storage) throw new Error('Firebase Storage is not configured.');
+  if (!uid || !conversationId) throw new Error('Open a conversation first.');
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    throw new Error('Use a JPEG, PNG or WebP image for your wallpaper.');
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    throw new Error('Wallpaper must be smaller than 8 MB.');
+  }
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = `conversationWallpapers/${uid}/${conversationId}/${Date.now()}-${safeName}`;
+  const task = uploadBytesResumable(ref(storage, path), file, { contentType: file.type });
+
+  await new Promise<void>((resolve, reject) => {
+    task.on('state_changed', undefined, reject, () => resolve());
+  });
+
+  return { url: await getDownloadURL(task.snapshot.ref), path };
+}
+
+export async function removeConversationWallpaper(path: string): Promise<void> {
+  if (!storage || !path) return;
+
+  try {
+    await deleteObject(ref(storage, path));
+  } catch (error) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'storage/object-not-found'
+    ) {
+      return;
+    }
+    throw error;
+  }
 }
 
 export async function markConversationRead(

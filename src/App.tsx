@@ -17,6 +17,8 @@ import {
   UserRound,
   Phone,
   Video,
+  Palette,
+  X,
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { auth } from './lib/firebase';
@@ -42,6 +44,9 @@ import {
   watchLatestMessage,
   watchConversationPreferences,
   setConversationPinned,
+  setConversationAppearance,
+  uploadConversationWallpaper,
+  removeConversationWallpaper,
   markConversationRead,
   watchOwnProfile,
   watchProfile,
@@ -50,6 +55,7 @@ import {
   type PulseMessage,
   type PulsePost,
   type PulseConversationPreference,
+  type PulseConversationAppearance,
 } from './lib/pulse-data';
 
 
@@ -210,6 +216,44 @@ function App() {
 
   const [viewedProfile, setViewedProfile] = useState<PublicProfile | null>(null);
   const [messageText, setMessageText] = useState('');
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [appearanceSaving, setAppearanceSaving] = useState(false);
+  const [appearanceDraft, setAppearanceDraft] = useState<PulseConversationAppearance>({
+    theme: 'midnight',
+    background: 'plain',
+    fontSize: 'medium',
+    bubbleStyle: 'rounded',
+    wallpaperURL: null,
+    wallpaperPath: null,
+  });
+
+  const savedConversationAppearance = selectedId
+    ? conversationPreferences[selectedId]?.appearance
+    : undefined;
+
+  const cleanUnsavedWallpaper = async (path?: string | null) => {
+    if (!path || path === savedConversationAppearance?.wallpaperPath) return;
+    try {
+      await removeConversationWallpaper(path);
+    } catch (cleanupError) {
+      console.warn('Could not clean up an unused conversation wallpaper:', cleanupError);
+    }
+  };
+
+  const discardAppearanceChanges = async () => {
+    await cleanUnsavedWallpaper(appearanceDraft.wallpaperPath);
+
+    setAppearanceDraft({
+      theme: savedConversationAppearance?.theme ?? 'midnight',
+      background: savedConversationAppearance?.background ?? 'plain',
+      fontSize: savedConversationAppearance?.fontSize ?? 'medium',
+      bubbleStyle: savedConversationAppearance?.bubbleStyle ?? 'rounded',
+      wallpaperURL: savedConversationAppearance?.wallpaperURL ?? null,
+      wallpaperPath: savedConversationAppearance?.wallpaperPath ?? null,
+    });
+
+    setAppearanceOpen(false);
+  };
   const [posts, setPosts] = useState<PulsePost[]>([]);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [attachmentProgress, setAttachmentProgress] = useState(0);
@@ -218,6 +262,23 @@ function App() {
   const [createTemporary, setCreateTemporary] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishProgress, setPublishProgress] = useState(0);
+  useEffect(() => {
+    if (appearanceOpen) return;
+
+    const saved = selectedId
+      ? conversationPreferences[selectedId]?.appearance
+      : undefined;
+
+    setAppearanceDraft({
+      theme: saved?.theme ?? 'midnight',
+      background: saved?.background ?? 'plain',
+      fontSize: saved?.fontSize ?? 'medium',
+      bubbleStyle: saved?.bubbleStyle ?? 'rounded',
+      wallpaperURL: saved?.wallpaperURL ?? null,
+      wallpaperPath: saved?.wallpaperPath ?? null,
+    });
+  }, [selectedId, conversationPreferences, appearanceOpen]);
+
   const [conversationSearch, setConversationSearch] = useState('');
   const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'pinned'>('all');
   const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
@@ -1216,6 +1277,15 @@ function App() {
                     <div className="pulse-chat-call-actions">
                       <button
                         type="button"
+                        className="pulse-appearance-trigger"
+                        title="Customize this conversation"
+                        aria-label="Customize conversation appearance"
+                        onClick={() => setAppearanceOpen(value => !value)}
+                      >
+                        <Palette size={18} />
+                      </button>
+                      <button
+                        type="button"
                         disabled
                         title="Voice calling will be available in the calling milestone"
                         aria-label="Voice calling coming soon"
@@ -1233,7 +1303,160 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="pulse-message-list">
+                  {appearanceOpen && selectedId && user && (
+                    <section className="pulse-appearance-panel" aria-label="Conversation appearance">
+                      <div className="pulse-appearance-heading">
+                        <div>
+                          <strong>Chat appearance</strong>
+                          <small>Personal settings for this conversation.</small>
+                        </div>
+                        <button type="button" aria-label="Close appearance settings" onClick={() => void discardAppearanceChanges()}>
+                          <X size={17} />
+                        </button>
+                      </div>
+
+                      <div className="pulse-appearance-grid">
+                        <label>Theme
+                          <select value={appearanceDraft.theme} onChange={event => setAppearanceDraft(v => ({ ...v, theme: event.target.value as PulseConversationAppearance['theme'] }))}>
+                            <option value="midnight">Midnight</option>
+                            <option value="ocean">Ocean</option>
+                            <option value="light">Light</option>
+                          </select>
+                        </label>
+                        <label>Background
+                          <select value={appearanceDraft.background} onChange={event => setAppearanceDraft(v => ({ ...v, background: event.target.value as PulseConversationAppearance['background'] }))}>
+                            <option value="plain">Plain</option>
+                            <option value="gradient">Gradient</option>
+                            <option value="dots">Subtle dots</option>
+                          </select>
+                        </label>
+                        <label>Message font
+                          <select value={appearanceDraft.fontSize} onChange={event => setAppearanceDraft(v => ({ ...v, fontSize: event.target.value as PulseConversationAppearance['fontSize'] }))}>
+                            <option value="small">Small</option>
+                            <option value="medium">Medium</option>
+                            <option value="large">Large</option>
+                          </select>
+                        </label>
+                        <label>Bubble shape
+                          <select value={appearanceDraft.bubbleStyle} onChange={event => setAppearanceDraft(v => ({ ...v, bubbleStyle: event.target.value as PulseConversationAppearance['bubbleStyle'] }))}>
+                            <option value="rounded">Rounded</option>
+                            <option value="soft">Soft</option>
+                            <option value="square">Square</option>
+                          </select>
+                        </label>
+                      </div>
+
+                      <label className="pulse-wallpaper-upload">
+                        <Camera size={16} /> Upload wallpaper
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          disabled={appearanceSaving}
+                          onChange={async event => {
+                            const file = event.currentTarget.files?.[0];
+                            event.currentTarget.value = '';
+                            if (!file || !user || !selectedId) return;
+                            if (file.size > 8 * 1024 * 1024) {
+                              setError('Choose a wallpaper smaller than 8 MB.');
+                              return;
+                            }
+                            try {
+                              setAppearanceSaving(true);
+                              const uploaded = await uploadConversationWallpaper(user.uid, selectedId, file);
+                              await cleanUnsavedWallpaper(appearanceDraft.wallpaperPath);
+              setAppearanceDraft(v => ({ ...v, wallpaperURL: uploaded.url, wallpaperPath: uploaded.path }));
+                              setError('');
+                            } catch (uploadError) {
+                              setError(uploadError instanceof Error ? uploadError.message : 'Wallpaper upload failed.');
+                            } finally {
+                              setAppearanceSaving(false);
+                            }
+                          }}
+                        />
+                      </label>
+
+                      {appearanceDraft.wallpaperURL && (
+                        <button type="button" className="pulse-wallpaper-remove" onClick={async () => {
+                          await cleanUnsavedWallpaper(appearanceDraft.wallpaperPath);
+                          setAppearanceDraft(v => ({ ...v, wallpaperURL: null, wallpaperPath: null }));
+                        }}>
+                          Remove custom wallpaper
+                        </button>
+                      )}
+
+                      <div className="pulse-appearance-actions">
+                        <button
+                          type="button"
+                          disabled={appearanceSaving}
+                          onClick={async () => {
+                            await cleanUnsavedWallpaper(appearanceDraft.wallpaperPath);
+                            setAppearanceDraft({
+                              theme: 'midnight',
+                              background: 'plain',
+                              fontSize: 'medium',
+                              bubbleStyle: 'rounded',
+                              wallpaperURL: null,
+                              wallpaperPath: null,
+                            });
+                          }}
+                        >Reset preview</button>
+                        <button
+                          type="button"
+                          disabled={appearanceSaving}
+                          onClick={async () => {
+                            try {
+                              setAppearanceSaving(true);
+
+                              const previousWallpaperPath =
+                                savedConversationAppearance?.wallpaperPath ?? null;
+
+                              await setConversationAppearance(
+                                user.uid,
+                                selectedId,
+                                appearanceDraft,
+                              );
+
+                              if (
+                                previousWallpaperPath &&
+                                previousWallpaperPath !== appearanceDraft.wallpaperPath
+                              ) {
+                                try {
+                                  await removeConversationWallpaper(previousWallpaperPath);
+                                } catch (cleanupError) {
+                                  console.warn(
+                                    'Appearance saved, but the previous wallpaper could not be deleted:',
+                                    cleanupError,
+                                  );
+                                }
+                              }
+
+                              setAppearanceOpen(false);
+                              setError('');
+                            } catch (saveError) {
+                              setError(saveError instanceof Error ? saveError.message : 'Could not save chat appearance.');
+                            } finally {
+                              setAppearanceSaving(false);
+                            }
+                          }}
+                        >
+                          {appearanceSaving ? 'Saving…' : 'Save appearance'}
+                        </button>
+                      </div>
+                    </section>
+                  )}
+
+                  <div
+                    className="pulse-message-list"
+                    data-theme={appearanceDraft.theme}
+                    data-background={appearanceDraft.background}
+                    data-font-size={appearanceDraft.fontSize}
+                    data-bubble-style={appearanceDraft.bubbleStyle}
+                    style={appearanceDraft.wallpaperURL ? {
+                      backgroundImage: `linear-gradient(rgba(8, 12, 20, .68), rgba(8, 12, 20, .68)), url("${appearanceDraft.wallpaperURL}")`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    } : undefined}
+                  >
                     {messages.length === 0 ? (
                       <div className="pulse-empty-chat">
                         <ShieldCheck size={27} />
