@@ -2437,8 +2437,13 @@ function App() {
                             }
 
                             if (dx > 58 && Math.abs(dx) > Math.abs(dy) * 1.35) {
+                              if (longPressTimerRef.current !== null) {
+                                window.clearTimeout(longPressTimerRef.current);
+                                longPressTimerRef.current = null;
+                              }
                               touchStartRef.current = null;
                               suppressMessageClickRef.current = true;
+                              if (event.cancelable) event.preventDefault();
                               startReply(item);
                             }
                           }}
@@ -2507,7 +2512,7 @@ function App() {
                               })}
                             </div>
                           )}
-                          <div className="pulse-message-bubble">
+                          <div className={`pulse-message-bubble${(messageReactions[item.id] ?? []).length > 0 ? ' has-reactions' : ''}`}>
                             {item.replyTo && (
                               <button
                                 type="button"
@@ -2557,23 +2562,23 @@ function App() {
                                 >✓✓</span>
                               )}
                             </small>
+                            {(messageReactions[item.id] ?? []).length > 0 && (
+                              <div className="pulse-message-reaction-summary" aria-label="Message reactions">
+                                {MESSAGE_REACTION_EMOJIS.map(emoji => {
+                                  const count = (messageReactions[item.id] ?? [])
+                                    .filter(reaction => reaction.emoji === emoji).length;
+                                  if (!count) return null;
+                                  const own = (messageReactions[item.id] ?? [])
+                                    .some(reaction => reaction.uid === user.uid && reaction.emoji === emoji);
+                                  return (
+                                    <span key={emoji} className={own ? 'is-own-reaction' : ''}>
+                                      {emoji}<small>{count}</small>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
-                          {(messageReactions[item.id] ?? []).length > 0 && (
-                            <div className="pulse-message-reaction-summary" aria-label="Message reactions">
-                              {MESSAGE_REACTION_EMOJIS.map(emoji => {
-                                const count = (messageReactions[item.id] ?? [])
-                                  .filter(reaction => reaction.emoji === emoji).length;
-                                if (!count) return null;
-                                const own = (messageReactions[item.id] ?? [])
-                                  .some(reaction => reaction.uid === user.uid && reaction.emoji === emoji);
-                                return (
-                                  <span key={emoji} className={own ? 'is-own-reaction' : ''}>
-                                    {emoji}<small>{count}</small>
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          )}
                         </div>
                       );
                     })}

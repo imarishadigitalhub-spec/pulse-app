@@ -4089,3 +4089,38 @@ img, video { max-width: 100%; }
     line-height: 1.25;
   }
 }
+
+
+/* PULSE: custom mobile message selection and bubble-attached reactions */
+.pulse-conversation-active .pulse-message-row,
+.pulse-conversation-active .pulse-message-row .pulse-message-bubble,
+.pulse-conversation-active .pulse-message-row .pulse-message-bubble * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+.pulse-conversation-active .pulse-message-bubble {
+  position: relative;
+  overflow: visible;
+}
+.pulse-conversation-active .pulse-message-bubble.has-reactions {
+  margin-bottom: 12px;
+}
+.pulse-conversation-active .pulse-message-reaction-summary {
+  position: absolute;
+  left: 10px;
+  bottom: -12px;
+  z-index: 4;
+  width: max-content;
+  max-width: min(100%, 280px);
+  margin: 0;
+  padding: 0;
+}
+.pulse-conversation-active .pulse-message-row.mine .pulse-message-reaction-summary {
+  right: 10px;
+  left: auto;
+  margin: 0;
+}
+.pulse-conversation-active .pulse-message-reaction-summary > span {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .22);
+}
