@@ -182,6 +182,12 @@ export type PulseMessage = {
   createdAt?: unknown;
 };
 
+export type PulseReadReceipt = {
+  uid: string;
+  lastReadAt?: unknown;
+  updatedAt?: unknown;
+};
+
 export type PulsePost = {
   id: string;
   ownerUid: string;
@@ -415,17 +421,24 @@ export function watchLatestMessage(
 
 
 export type PulseConversationAppearance = {
-  theme: 'midnight' | 'ocean' | 'light';
+  theme: 'midnight' | 'ocean' | 'light' | 'pulse-blue' | 'amoled';
   background: 'plain' | 'gradient' | 'dots';
   fontSize: 'small' | 'medium' | 'large';
-  bubbleStyle: 'rounded' | 'soft' | 'square';
+  bubbleStyle: 'rounded' | 'soft' | 'square' | 'compact' | 'whatsapp' | 'messenger' | 'pill' | 'minimal';
   wallpaperURL?: string | null;
   wallpaperPath?: string | null;
+  wallpaperId?: 'none' | 'minimal' | 'doodle' | 'nature-ocean' | 'nature-forest' | 'nature-mountains' | 'nature-sunset' | 'aurora';
+  wallpaperMotion?: 'none' | 'aurora' | 'flow';
+  sentBubbleColor?: string;
+  receivedBubbleColor?: string;
+  brightness?: number;
+  bubbleOpacity?: number;
 };
 
 export type PulseConversationPreference = {
   id: string;
   pinned?: boolean;
+  pinnedMessageIds?: string[];
   lastReadAt?: unknown;
   appearance?: PulseConversationAppearance;
   updatedAt?: unknown;
@@ -466,6 +479,50 @@ export async function setConversationPinned(
     { pinned, updatedAt: serverTimestamp() },
     { merge: true },
   );
+}
+
+/**
+ * Updates the current member's private pinned-message list.
+ */
+export async function setConversationPinnedMessage(
+  uid: string,
+  conversationId: string,
+  messageId: string,
+  pinned: boolean,
+): Promise<void> {
+  if (!uid || !conversationId || !messageId) {
+    throw new Error('A conversation and message are required.');
+  }
+
+  const preferenceRef = doc(
+    database(),
+    'users',
+    uid,
+    'conversationPreferences',
+    conversationId,
+  );
+
+  await runTransaction(database(), async transaction => {
+    const snapshot = await transaction.get(preferenceRef);
+    const stored = snapshot.data()?.pinnedMessageIds;
+    const current = Array.isArray(stored)
+      ? stored.filter((value): value is string => typeof value === 'string')
+      : [];
+
+    const next = pinned
+      ? [...new Set([...current, messageId])]
+      : current.filter(id => id !== messageId);
+
+    if (next.length > 100) {
+      throw new Error('You can pin up to 100 messages in this conversation.');
+    }
+
+    transaction.set(
+      preferenceRef,
+      { pinnedMessageIds: next, updatedAt: serverTimestamp() },
+      { merge: true },
+    );
+  });
 }
 
 export async function setConversationAppearance(
@@ -523,15 +580,47 @@ export async function removeConversationWallpaper(path: string): Promise<void> {
   }
 }
 
+export function watchConversationReadReceipts(
+  conversationId: string,
+  onReceipts: (items: Record<string, PulseReadReceipt>) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    collection(database(), 'conversations', conversationId, 'readReceipts'),
+    snapshot => {
+      const receipts: Record<string, PulseReadReceipt> = {};
+      snapshot.docs.forEach(item => {
+        receipts[item.id] = {
+          uid: item.id,
+          ...item.data(),
+        } as PulseReadReceipt;
+      });
+      onReceipts(receipts);
+    },
+    error => onError?.(error),
+  );
+}
+
 export async function markConversationRead(
   uid: string,
   conversationId: string,
 ): Promise<void> {
-  await setDoc(
-    doc(database(), 'users', uid, 'conversationPreferences', conversationId),
-    { lastReadAt: serverTimestamp(), updatedAt: serverTimestamp() },
-    { merge: true },
-  );
+  if (!uid || !conversationId) return;
+
+  const timestamp = serverTimestamp();
+
+  await Promise.all([
+    setDoc(
+      doc(database(), 'users', uid, 'conversationPreferences', conversationId),
+      { lastReadAt: timestamp, updatedAt: serverTimestamp() },
+      { merge: true },
+    ),
+    setDoc(
+      doc(database(), 'conversations', conversationId, 'readReceipts', uid),
+      { uid, lastReadAt: serverTimestamp(), updatedAt: serverTimestamp() },
+      { merge: true },
+    ),
+  ]);
 }
 
 export async function startDirectConversation(

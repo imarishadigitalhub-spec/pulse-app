@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
@@ -18,6 +19,7 @@ import {
   Phone,
   Video,
   Palette,
+  MoreVertical,
   X,
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
@@ -44,10 +46,12 @@ import {
   watchLatestMessage,
   watchConversationPreferences,
   setConversationPinned,
+  setConversationPinnedMessage,
   setConversationAppearance,
   uploadConversationWallpaper,
   removeConversationWallpaper,
   markConversationRead,
+  watchConversationReadReceipts,
   watchOwnProfile,
   watchProfile,
   type PublicProfile,
@@ -56,10 +60,64 @@ import {
   type PulsePost,
   type PulseConversationPreference,
   type PulseConversationAppearance,
+  type PulseReadReceipt,
 } from './lib/pulse-data';
 
 
 type Tab = 'Chats' | 'Explore' | 'Create' | 'Activity' | 'Profile';
+
+
+const BUBBLE_COLOR_PALETTE = [
+  '#2563eb', '#0ea5e9', '#0891b2', '#0d9488',
+  '#16a34a', '#65a30d', '#ca8a04', '#ea580c',
+  '#dc2626', '#e11d48', '#c026d3', '#9333ea',
+  '#64748b', '#475569', '#334155', '#202a38',
+];
+
+function hexToHsl(hex: string) {
+  const value = hex.replace('#', '');
+  const r = parseInt(value.slice(0, 2), 16) / 255;
+  const g = parseInt(value.slice(2, 4), 16) / 255;
+  const b = parseInt(value.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  let h = 0;
+  let saturation = 0;
+  const lightness = (max + min) / 2;
+
+  if (delta !== 0) {
+    saturation = delta / (1 - Math.abs(2 * lightness - 1));
+    if (max === r) h = 60 * (((g - b) / delta) % 6);
+    else if (max === g) h = 60 * ((b - r) / delta + 2);
+    else h = 60 * ((r - g) / delta + 4);
+  }
+
+  return {
+    h: (h + 360) % 360,
+    s: saturation * 100,
+    l: lightness * 100,
+  };
+}
+
+function hslToHex(h: number, s: number, l: number) {
+  const saturation = s / 100;
+  const lightness = l / 100;
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const x = chroma * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = lightness - chroma / 2;
+  const [r, g, b] = h < 60 ? [chroma, x, 0]
+    : h < 120 ? [x, chroma, 0]
+    : h < 180 ? [0, chroma, x]
+    : h < 240 ? [0, x, chroma]
+    : h < 300 ? [x, 0, chroma]
+    : [chroma, 0, x];
+
+  return `#${[r, g, b].map(
+    channel => Math.round((channel + m) * 255).toString(16).padStart(2, '0')
+  ).join('')}`;
+}
+
 
 function initials(name: string) {
   return name
@@ -198,6 +256,7 @@ function App() {
   const [latestMessages, setLatestMessages] = useState<Record<string, PulseMessage | null>>({});
   const [conversationPreferences, setConversationPreferences] = useState<Record<string, PulseConversationPreference>>({});
   const [messages, setMessages] = useState<PulseMessage[]>([]);
+  const [readReceipts, setReadReceipts] = useState<Record<string, PulseReadReceipt>>({});
   const [contactPresence, setContactPresence] = useState<ContactPresence>({
     online: false,
     available: false,
@@ -217,6 +276,43 @@ function App() {
   const [viewedProfile, setViewedProfile] = useState<PublicProfile | null>(null);
   const [messageText, setMessageText] = useState('');
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
+  const conversationHeadingRef = useRef<HTMLDivElement | null>(null);
+  const conversationMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!conversationMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+
+      if (
+        !conversationHeadingRef.current?.contains(target) &&
+        !conversationMenuRef.current?.contains(target)
+      ) {
+        setConversationMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setConversationMenuOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [conversationMenuOpen]);
+
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [mediaBrowserOpen, setMediaBrowserOpen] = useState(false);
+  const [pinnedMessagesOpen, setPinnedMessagesOpen] = useState(false);
+  const [pinningMessageId, setPinningMessageId] = useState<string | null>(null);
   const [appearanceSaving, setAppearanceSaving] = useState(false);
   const [appearanceDraft, setAppearanceDraft] = useState<PulseConversationAppearance>({
     theme: 'midnight',
@@ -225,6 +321,12 @@ function App() {
     bubbleStyle: 'rounded',
     wallpaperURL: null,
     wallpaperPath: null,
+    wallpaperId: 'none',
+    wallpaperMotion: 'none',
+    sentBubbleColor: '#2459a6',
+    receivedBubbleColor: '#202a38',
+    brightness: 68,
+    bubbleOpacity: 100,
   });
 
   const savedConversationAppearance = selectedId
@@ -240,8 +342,8 @@ function App() {
     }
   };
 
-  const discardAppearanceChanges = async () => {
-    await cleanUnsavedWallpaper(appearanceDraft.wallpaperPath);
+  const discardAppearanceChanges = () => {
+    const unsavedWallpaperPath = appearanceDraft.wallpaperPath;
 
     setAppearanceDraft({
       theme: savedConversationAppearance?.theme ?? 'midnight',
@@ -250,9 +352,16 @@ function App() {
       bubbleStyle: savedConversationAppearance?.bubbleStyle ?? 'rounded',
       wallpaperURL: savedConversationAppearance?.wallpaperURL ?? null,
       wallpaperPath: savedConversationAppearance?.wallpaperPath ?? null,
+      wallpaperId: savedConversationAppearance?.wallpaperId ?? 'none',
+      wallpaperMotion: savedConversationAppearance?.wallpaperMotion ?? 'none',
+      sentBubbleColor: savedConversationAppearance?.sentBubbleColor ?? '#2459a6',
+      receivedBubbleColor: savedConversationAppearance?.receivedBubbleColor ?? '#202a38',
+      brightness: savedConversationAppearance?.brightness ?? 68,
+      bubbleOpacity: savedConversationAppearance?.bubbleOpacity ?? 100,
     });
 
     setAppearanceOpen(false);
+    void cleanUnsavedWallpaper(unsavedWallpaperPath);
   };
   const [posts, setPosts] = useState<PulsePost[]>([]);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
@@ -276,6 +385,12 @@ function App() {
       bubbleStyle: saved?.bubbleStyle ?? 'rounded',
       wallpaperURL: saved?.wallpaperURL ?? null,
       wallpaperPath: saved?.wallpaperPath ?? null,
+      wallpaperId: saved?.wallpaperId ?? 'none',
+      wallpaperMotion: saved?.wallpaperMotion ?? 'none',
+      sentBubbleColor: saved?.sentBubbleColor ?? '#2459a6',
+      receivedBubbleColor: saved?.receivedBubbleColor ?? '#202a38',
+      brightness: saved?.brightness ?? 68,
+      bubbleOpacity: saved?.bubbleOpacity ?? 100,
     });
   }, [selectedId, conversationPreferences, appearanceOpen]);
 
@@ -325,6 +440,21 @@ function App() {
 
   useEffect(() => {
     function handleBrowserBack(event: PopStateEvent) {
+      // Appearance is the top layer: Back closes it before leaving the conversation.
+      if (selectedId && appearanceOpen) {
+        const previousState =
+          event.state && typeof event.state === 'object' ? event.state : {};
+
+        window.history.pushState(
+          { ...previousState, pulseConversationId: selectedId },
+          '',
+          window.location.href,
+        );
+
+        discardAppearanceChanges();
+        return;
+      }
+
       // A contact profile opened from a conversation is the top navigation layer.
       if (selectedId && activeTab === 'Profile' && viewedProfile) {
         setViewedProfile(null);
@@ -360,7 +490,7 @@ function App() {
 
     window.addEventListener('popstate', handleBrowserBack);
     return () => window.removeEventListener('popstate', handleBrowserBack);
-  }, [selectedId, activeTab, viewedProfile, accountMenuOpen, showNewChat, profileSettingsOpen]);
+  }, [selectedId, activeTab, viewedProfile, appearanceOpen, accountMenuOpen, showNewChat, profileSettingsOpen]);
 
   useEffect(() => {
     if (!auth) {
@@ -559,6 +689,20 @@ function App() {
   }, [selectedId, user]);
 
   useEffect(() => {
+    if (!selectedId || !user) {
+      setReadReceipts({});
+      return;
+    }
+
+    setReadReceipts({});
+    return watchConversationReadReceipts(
+      selectedId,
+      setReadReceipts,
+      err => setError('Message read receipts: ' + err.message),
+    );
+  }, [selectedId, user]);
+
+  useEffect(() => {
     if (!user) {
       setPosts([]);
       return;
@@ -573,9 +717,20 @@ function App() {
   useEffect(() => {
     if (!user || !selectedId || messages.length === 0) return;
 
-    void markConversationRead(user.uid, selectedId).catch(err => {
-      setError(err instanceof Error ? err.message : 'Could not update read status.');
-    });
+    const updateReadPosition = () => {
+      if (document.visibilityState !== 'visible') return;
+
+      void markConversationRead(user.uid, selectedId).catch(err => {
+        setError(err instanceof Error ? err.message : 'Could not update read status.');
+      });
+    };
+
+    updateReadPosition();
+    document.addEventListener('visibilitychange', updateReadPosition);
+
+    return () => {
+      document.removeEventListener('visibilitychange', updateReadPosition);
+    };
   }, [user, selectedId, messages[messages.length - 1]?.id]);
 
   // Each inbox row listens to the latest real message in its shared conversation.
@@ -755,6 +910,34 @@ function App() {
   const selectedPerson = selectedConversation
     ? peopleByUid.get(otherUid(selectedConversation))
     : undefined;
+
+  const conversationMedia = messages.filter(
+    item => item.type !== 'text' && Boolean(item.attachmentURL),
+  );
+
+  const conversationLinks = messages.flatMap(item => {
+    const matches = item.text?.match(/https?:\/\/[^\s<>"']+/g) ?? [];
+    return matches.map(url => ({
+      id: `${item.id}-${url}`,
+      url: url.replace(/[),.!?;:]+$/, ''),
+      message: item,
+    }));
+  });
+
+  const pinnedMessageIds = selectedId
+    ? conversationPreferences[selectedId]?.pinnedMessageIds ?? []
+    : [];
+
+  const pinnedMessages = messages.filter(item => pinnedMessageIds.includes(item.id));
+
+  const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
+  const messageSearchResults = normalizedMessageSearch
+    ? [...messages].reverse().filter(item =>
+        `${item.text ?? ''} ${item.attachmentName ?? ''}`
+          .toLocaleLowerCase()
+          .includes(normalizedMessageSearch),
+      )
+    : [];
 
   useEffect(() => {
     if (!user || !selectedPerson) {
@@ -1236,7 +1419,7 @@ function App() {
             {selectedId && (
               <div className="pulse-chat-window">
                 <>
-                  <div className="pulse-chat-heading">
+                  <div ref={conversationHeadingRef} className="pulse-chat-heading">
                     <button
                       type="button"
                       className="pulse-chat-profile-trigger"
@@ -1255,39 +1438,37 @@ function App() {
                         );
                         setViewedProfile(selectedPerson);
                         setActiveTab('Profile');
+                        setConversationMenuOpen(false);
                       }}
                     >
                       <Avatar
                         name={selectedPerson?.displayName ?? 'PULSE member'}
                         photoURL={selectedPerson?.photoURL}
                       />
-                      <span>
+                      <span className="pulse-chat-contact-identity">
                         <strong>{selectedPerson?.displayName ?? 'PULSE member'}</strong>
                         <small>{selectedPerson ? `@${selectedPerson.username}` : 'Private conversation'}</small>
-                        {selectedPerson && contactPresence.available && (
-                          <small className={`pulse-contact-presence ${contactPresence.online ? 'online' : 'offline'}`}>
-                            <span />
-                            {contactPresence.online
-                              ? 'Online'
-                              : formatPresenceLastSeen(contactPresence.lastSeen, presenceNow)}
-                          </small>
-                        )}
                       </span>
                     </button>
+
+                    <div className="pulse-chat-presence-slot" aria-live="polite">
+                      {selectedPerson && contactPresence.available ? (
+                        <span className={`pulse-chat-presence-label ${contactPresence.online ? 'online' : 'offline'}`}>
+                          <span />
+                          {contactPresence.online
+                            ? 'Online'
+                            : formatPresenceLastSeen(contactPresence.lastSeen, presenceNow)}
+                        </span>
+                      ) : (
+                        <span className="pulse-chat-presence-label"> </span>
+                      )}
+                    </div>
+
                     <div className="pulse-chat-call-actions">
                       <button
                         type="button"
-                        className="pulse-appearance-trigger"
-                        title="Customize this conversation"
-                        aria-label="Customize conversation appearance"
-                        onClick={() => setAppearanceOpen(value => !value)}
-                      >
-                        <Palette size={18} />
-                      </button>
-                      <button
-                        type="button"
                         disabled
-                        title="Voice calling will be available in the calling milestone"
+                        title="Voice calling will be available in the audio/video milestone"
                         aria-label="Voice calling coming soon"
                       >
                         <Phone size={18} />
@@ -1295,13 +1476,292 @@ function App() {
                       <button
                         type="button"
                         disabled
-                        title="Video calling will be available in the calling milestone"
+                        title="Video calling will be available in the audio/video milestone"
                         aria-label="Video calling coming soon"
                       >
                         <Video size={19} />
                       </button>
+                      <button
+                        type="button"
+                        className="pulse-chat-menu-trigger"
+                        title="Conversation options"
+                        aria-label="Open conversation options"
+                        aria-haspopup="menu"
+                        aria-expanded={conversationMenuOpen}
+                        onClick={() => setConversationMenuOpen(value => !value)}
+                      >
+                        <MoreVertical size={19} />
+                      </button>
                     </div>
                   </div>
+
+                  {conversationMenuOpen && (
+                    <div ref={conversationMenuRef} className="pulse-conversation-menu" role="menu" aria-label="Conversation options">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setConversationMenuOpen(false);
+                          if (!selectedPerson) return;
+                          window.history.pushState(
+                            {
+                              ...(window.history.state && typeof window.history.state === 'object'
+                                ? window.history.state
+                                : {}),
+                              pulseContactProfile: true,
+                            },
+                            '',
+                            window.location.href,
+                          );
+                          setViewedProfile(selectedPerson);
+                          setActiveTab('Profile');
+                        }}
+                      >
+                        <UserRound size={17} /> View contact
+                      </button>
+
+                      <div className="pulse-conversation-menu-divider" />
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setConversationMenuOpen(false);
+                          setAppearanceOpen(true);
+                        }}
+                      >
+                        <Palette size={17} /> Chat theme
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setConversationMenuOpen(false);
+                          setMessageSearchQuery('');
+                          setMessageSearchOpen(true);
+                        }}
+                      >
+                        <Search size={17} /> Search messages
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setConversationMenuOpen(false);
+                          setMediaBrowserOpen(true);
+                        }}
+                      >
+                        <Camera size={17} /> Media, links and documents
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setConversationMenuOpen(false);
+                          setPinnedMessagesOpen(true);
+                        }}
+                      >
+                        <Pin size={17} /> Pinned messages
+                        {pinnedMessages.length > 0 && <small>{pinnedMessages.length}</small>}
+                      </button>
+
+                      <div className="pulse-conversation-menu-divider" />
+
+                      <button type="button" role="menuitem" disabled title="Conversation notification controls are being implemented">
+                        <Bell size={17} /> Mute notifications
+                        <small>Coming soon</small>
+                      </button>
+
+                      <button type="button" role="menuitem" disabled title="Disappearing messages are being implemented">
+                        <X size={17} /> Disappearing messages
+                        <small>Coming soon</small>
+                      </button>
+                    </div>
+                  )}
+
+                  {messageSearchOpen && selectedId && (
+                    <section className="pulse-message-search" aria-label="Search conversation messages">
+                      <div className="pulse-message-search-heading">
+                        <div>
+                          <strong>Search messages</strong>
+                          <small>Search text and attachment names in this conversation.</small>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label="Close message search"
+                          onClick={() => {
+                            setMessageSearchOpen(false);
+                            setMessageSearchQuery('');
+                          }}
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+
+                      <div className="pulse-message-search-input">
+                        <Search size={17} />
+                        <input
+                          autoFocus
+                          type="search"
+                          value={messageSearchQuery}
+                          onChange={event => setMessageSearchQuery(event.target.value)}
+                          placeholder="Search this conversation…"
+                          aria-label="Search this conversation"
+                        />
+                        {messageSearchQuery && (
+                          <button
+                            type="button"
+                            aria-label="Clear search"
+                            onClick={() => setMessageSearchQuery('')}
+                          >
+                            <X size={15} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="pulse-message-search-results" aria-live="polite">
+                        {!normalizedMessageSearch ? (
+                          <p className="pulse-message-search-hint">
+                            Enter a word, phrase or attachment name to search.
+                          </p>
+                        ) : messageSearchResults.length === 0 ? (
+                          <p className="pulse-message-search-hint">
+                            No messages found for “{messageSearchQuery.trim()}”.
+                          </p>
+                        ) : (
+                          <>
+                            <div className="pulse-message-search-count">
+                              {messageSearchResults.length} {messageSearchResults.length === 1 ? 'result' : 'results'}
+                            </div>
+                            {messageSearchResults.map(item => (
+                              <button
+                                type="button"
+                                className="pulse-message-search-result"
+                                key={item.id}
+                                onClick={() => {
+                                  setMessageSearchOpen(false);
+                                  window.requestAnimationFrame(() => {
+                                    document
+                                      .getElementById(`pulse-message-${item.id}`)
+                                      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  });
+                                }}
+                              >
+                                <span className="pulse-message-search-result-top">
+                                  <strong>
+                                    {item.senderId === user?.uid
+                                      ? 'You'
+                                      : selectedPerson?.displayName || 'Contact'}
+                                  </strong>
+                                  <small>{timestampLabel(item.createdAt)}</small>
+                                </span>
+                                <span className="pulse-message-search-result-text">
+                                  {item.text || item.attachmentName || 'Shared attachment'}
+                                </span>
+                                {item.type !== 'text' && (
+                                  <small className="pulse-message-search-attachment">
+                                    {item.type.toUpperCase()} attachment
+                                  </small>
+                                )}
+                              </button>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    </section>
+                  )}
+
+                  {mediaBrowserOpen && selectedId && (
+                    <section className="pulse-conversation-library" aria-label="Conversation media">
+                      <div className="pulse-library-heading">
+                        <div>
+                          <strong>Media, links and documents</strong>
+                          <small>{conversationMedia.length} shared files · {conversationLinks.length} links</small>
+                        </div>
+                        <button type="button" aria-label="Close media library" onClick={() => setMediaBrowserOpen(false)}>
+                          <X size={18} />
+                        </button>
+                      </div>
+
+                      <div className="pulse-library-section">
+                        <strong>Shared media and documents</strong>
+                        {conversationMedia.length === 0 ? (
+                          <p className="pulse-library-empty">No files have been shared in this conversation yet.</p>
+                        ) : (
+                          <div className="pulse-library-grid">
+                            {[...conversationMedia].reverse().map(item => (
+                              <a className="pulse-library-item" href={item.attachmentURL} target="_blank" rel="noreferrer" key={item.id}>
+                                {item.type === 'image' ? (
+                                  <img src={item.attachmentURL} alt={item.attachmentName || 'Shared image'} loading="lazy" />
+                                ) : item.type === 'video' ? (
+                                  <video src={item.attachmentURL} preload="metadata" />
+                                ) : (
+                                  <span className="pulse-library-document">
+                                    <strong>DOC</strong>
+                                    <small>{item.attachmentContentType || 'Document'}</small>
+                                  </span>
+                                )}
+                                <span className="pulse-library-file-name">{item.attachmentName || item.type}</span>
+                                <small>{timestampLabel(item.createdAt)}</small>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pulse-library-section">
+                        <strong>Shared links</strong>
+                        {conversationLinks.length === 0 ? (
+                          <p className="pulse-library-empty">No links have been shared in this conversation yet.</p>
+                        ) : (
+                          <div className="pulse-shared-links">
+                            {[...conversationLinks].reverse().map(link => (
+                              <a href={link.url} target="_blank" rel="noopener noreferrer" key={link.id}>
+                                <span>{link.url}</span>
+                                <small>{link.message.senderId === user?.uid ? 'You' : selectedPerson?.displayName || 'Contact'} · {timestampLabel(link.message.createdAt)}</small>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  )}
+
+                  {pinnedMessagesOpen && selectedId && user && (
+                    <section className="pulse-conversation-library" aria-label="Pinned messages">
+                      <div className="pulse-library-heading">
+                        <div>
+                          <strong>Pinned messages</strong>
+                          <small>Private to your PULSE account</small>
+                        </div>
+                        <button type="button" aria-label="Close pinned messages" onClick={() => setPinnedMessagesOpen(false)}>
+                          <X size={18} />
+                        </button>
+                      </div>
+                      {pinnedMessages.length === 0 ? (
+                        <p className="pulse-library-empty">No pinned messages yet. Use the pin control beside a message to save it here.</p>
+                      ) : (
+                        <div className="pulse-pinned-list">
+                          {pinnedMessages.map(item => (
+                            <button type="button" className="pulse-pinned-item" key={item.id} onClick={() => {
+                              setPinnedMessagesOpen(false);
+                              window.requestAnimationFrame(() => {
+                                document.getElementById(`pulse-message-${item.id}`)
+                                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              });
+                            }}>
+                              <strong>{item.senderId === user.uid ? 'You' : selectedPerson?.displayName || 'Contact'}</strong>
+                              <span>{item.text || item.attachmentName || 'Shared attachment'}</span>
+                              <small>{timestampLabel(item.createdAt)}</small>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  )}
 
                   {appearanceOpen && selectedId && user && (
                     <section className="pulse-appearance-panel" aria-label="Conversation appearance">
@@ -1315,12 +1775,52 @@ function App() {
                         </button>
                       </div>
 
+                      <div className="pulse-appearance-scroll">
+                      <div
+                        className="pulse-appearance-preview"
+                        data-theme={appearanceDraft.theme}
+                        data-background={appearanceDraft.background}
+                        data-font-size={appearanceDraft.fontSize}
+                        data-bubble-style={appearanceDraft.bubbleStyle}
+                        data-wallpaper={appearanceDraft.wallpaperId ?? 'none'}
+                        data-brightness={appearanceDraft.brightness ?? 68}
+                        data-bubble-opacity={appearanceDraft.bubbleOpacity ?? 100}
+                        style={{
+                          '--pulse-sent-bubble': appearanceDraft.sentBubbleColor ?? '#2459a6',
+                          '--pulse-received-bubble': appearanceDraft.receivedBubbleColor ?? '#202a38',
+                          '--pulse-bubble-opacity': (appearanceDraft.bubbleOpacity ?? 100) / 100,
+                          '--pulse-wallpaper-dim': Math.max(0, (100 - (appearanceDraft.brightness ?? 68)) / 100 * 0.72),
+                          ...(appearanceDraft.wallpaperURL ? {
+                            backgroundImage: `url("${appearanceDraft.wallpaperURL}")`,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                          } : {}),
+                        } as CSSProperties}
+                      >
+                        <div className="pulse-appearance-preview-heading">
+                          <strong>Live preview</strong>
+                          <span>Changes appear here before saving</span>
+                        </div>
+                        <div className="pulse-appearance-preview-messages">
+                          <div className="pulse-preview-bubble incoming">
+                            Hey! How are you?
+                            <small>10:42</small>
+                          </div>
+                          <div className="pulse-preview-bubble outgoing">
+                            I'm good, thanks!
+                            <small>10:43 <span className="pulse-read-receipt is-read">✓✓</span></small>
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="pulse-appearance-grid">
                         <label>Theme
                           <select value={appearanceDraft.theme} onChange={event => setAppearanceDraft(v => ({ ...v, theme: event.target.value as PulseConversationAppearance['theme'] }))}>
-                            <option value="midnight">Midnight</option>
-                            <option value="ocean">Ocean</option>
-                            <option value="light">Light</option>
+                            <option value="midnight">Classic Dark</option>
+                            <option value="pulse-blue">PULSE Blue</option>
+                            <option value="ocean">Oceanic</option>
+                            <option value="light">Classic Light</option>
+                            <option value="amoled">AMOLED Black</option>
                           </select>
                         </label>
                         <label>Background
@@ -1339,12 +1839,171 @@ function App() {
                         </label>
                         <label>Bubble shape
                           <select value={appearanceDraft.bubbleStyle} onChange={event => setAppearanceDraft(v => ({ ...v, bubbleStyle: event.target.value as PulseConversationAppearance['bubbleStyle'] }))}>
-                            <option value="rounded">Rounded</option>
-                            <option value="soft">Soft</option>
+                            <option value="rounded">Classic rounded</option>
+                            <option value="soft">Soft rounded</option>
                             <option value="square">Square</option>
+                            <option value="compact">Compact</option>
+                            <option value="whatsapp">WhatsApp style</option>
+                            <option value="messenger">Messenger style</option>
+                            <option value="pill">Pill</option>
+                            <option value="minimal">Minimal / flat</option>
                           </select>
                         </label>
                       </div>
+
+                      <section className="pulse-theme-library" aria-label="Wallpaper library">
+                        <div className="pulse-theme-section-heading">
+                          <strong>Wallpaper library</strong>
+                          <small>Choose a background for this conversation.</small>
+                        </div>
+
+                        <div className="pulse-wallpaper-grid">
+                          {([
+                            ['none', 'Original', 'original'],
+                            ['minimal', 'Minimal', 'minimal'],
+                            ['doodle', 'Doodles', 'doodle'],
+                            ['nature-ocean', 'Ocean', 'ocean'],
+                            ['nature-forest', 'Forest', 'forest'],
+                            ['nature-mountains', 'Mountains', 'mountains'],
+                            ['nature-sunset', 'Sunset', 'sunset'],
+                            ['aurora', 'Aurora', 'aurora'],
+                          ] as const).map(([id, label, preview]) => (
+                            <button
+                              key={id}
+                              type="button"
+                              className="pulse-wallpaper-choice"
+                              data-wallpaper-preview={preview}
+                              data-selected={(appearanceDraft.wallpaperId ?? 'none') === id}
+                              aria-pressed={(appearanceDraft.wallpaperId ?? 'none') === id}
+                              onClick={async () => {
+                                // Remove an uploaded draft wallpaper when it is
+                                // replaced by a built-in wallpaper. Saved files
+                                // are protected by cleanUnsavedWallpaper().
+                                await cleanUnsavedWallpaper(appearanceDraft.wallpaperPath);
+
+                                setAppearanceDraft(v => ({
+                                  ...v,
+                                  wallpaperId: id,
+                                  wallpaperMotion: id === 'aurora' ? 'aurora' : 'none',
+                                  wallpaperURL: null,
+                                  wallpaperPath: null,
+                                }));
+                              }}
+                            >
+                              <span className="pulse-wallpaper-swatch" />
+                              <span>{label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+
+                      <section className="pulse-theme-controls" aria-label="Message appearance controls">
+                        <div className="pulse-theme-section-heading">
+                          <strong>Message bubbles</strong>
+                          <small>Personalise incoming and outgoing messages.</small>
+                        </div>
+
+                        <div className="pulse-bubble-color-editors">
+                          {([
+                            { key: 'sentBubbleColor', label: 'Sent messages', fallback: '#2459a6' },
+                            { key: 'receivedBubbleColor', label: 'Received messages', fallback: '#202a38' },
+                          ] as const).map(({ key, label, fallback }) => {
+                            const selectedColor = appearanceDraft[key] ?? fallback;
+                            const hue = hexToHsl(selectedColor);
+
+                            return (
+                              <div className="pulse-bubble-color-editor" key={key}>
+                                <div className="pulse-bubble-color-title">
+                                  <strong>{label}</strong>
+                                  <span>{selectedColor.toUpperCase()}</span>
+                                </div>
+
+                                <div className="pulse-bubble-color-palette">
+                                  {BUBBLE_COLOR_PALETTE.map(color => (
+                                    <button
+                                      key={color}
+                                      type="button"
+                                      className="pulse-bubble-color-swatch"
+                                      style={{ backgroundColor: color }}
+                                      data-selected={selectedColor.toLowerCase() === color}
+                                      aria-label={`${label} colour ${color}`}
+                                      aria-pressed={selectedColor.toLowerCase() === color}
+                                      onClick={() => setAppearanceDraft(v => ({
+                                        ...v, [key]: color,
+                                      }))}
+                                    />
+                                  ))}
+                                </div>
+
+                                <label className="pulse-bubble-hue-control">
+                                  <span>
+                                    Adjust colour
+                                    <strong>{Math.round(hue.h)}°</strong>
+                                  </span>
+                                  <input
+                                    type="range"
+                                    min="0"
+                                    max="359"
+                                    step="1"
+                                    value={Math.round(hue.h)}
+                                    onChange={event => setAppearanceDraft(v => ({
+                                      ...v,
+                                      [key]: hslToHex(
+                                        Number(event.target.value),
+                                        Math.max(55, hue.s),
+                                        hue.l,
+                                      ),
+                                    }))}
+                                  />
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <label className="pulse-theme-range">
+                          <span>Background brightness <strong>{appearanceDraft.brightness ?? 68}%</strong></span>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={appearanceDraft.brightness ?? 68}
+                            onChange={event => setAppearanceDraft(v => ({
+                              ...v, brightness: Number(event.target.value),
+                            }))}
+                          />
+                        </label>
+
+                        <label className="pulse-theme-range">
+                          <span>Bubble transparency <strong>{appearanceDraft.bubbleOpacity ?? 100}%</strong></span>
+                          <input
+                            type="range"
+                            min="50"
+                            max="100"
+                            step="1"
+                            value={appearanceDraft.bubbleOpacity ?? 100}
+                            onChange={event => setAppearanceDraft(v => ({
+                              ...v, bubbleOpacity: Number(event.target.value),
+                            }))}
+                          />
+                        </label>
+
+                        <label className="pulse-theme-motion">
+                          <span>Wallpaper motion</span>
+                          <select
+                            value={appearanceDraft.wallpaperMotion ?? 'none'}
+                            onChange={event => setAppearanceDraft(v => ({
+                              ...v,
+                              wallpaperMotion: event.target.value as NonNullable<PulseConversationAppearance['wallpaperMotion']>,
+                            }))}
+                          >
+                            <option value="none">Still wallpaper</option>
+                            <option value="aurora">Moving aurora</option>
+                            <option value="flow">Flowing gradient</option>
+                          </select>
+                        </label>
+                      </section>
 
                       <label className="pulse-wallpaper-upload">
                         <Camera size={16} /> Upload wallpaper
@@ -1384,6 +2043,8 @@ function App() {
                         </button>
                       )}
 
+                      </div>
+
                       <div className="pulse-appearance-actions">
                         <button
                           type="button"
@@ -1397,43 +2058,68 @@ function App() {
                               bubbleStyle: 'rounded',
                               wallpaperURL: null,
                               wallpaperPath: null,
+                              wallpaperId: 'none',
+                              wallpaperMotion: 'none',
+                              sentBubbleColor: '#2459a6',
+                              receivedBubbleColor: '#202a38',
+                              brightness: 68,
+                              bubbleOpacity: 100,
                             });
                           }}
                         >Reset preview</button>
                         <button
                           type="button"
                           disabled={appearanceSaving}
+                          onClick={() => void discardAppearanceChanges()}
+                        >Cancel</button>
+                        <button
+                          type="button"
+                          disabled={appearanceSaving}
                           onClick={async () => {
-                            try {
-                              setAppearanceSaving(true);
+                            if (appearanceSaving) return;
 
+                            setAppearanceSaving(true);
+                            try {
+                              const savedAppearance = { ...appearanceDraft };
                               const previousWallpaperPath =
                                 savedConversationAppearance?.wallpaperPath ?? null;
 
                               await setConversationAppearance(
                                 user.uid,
                                 selectedId,
-                                appearanceDraft,
+                                savedAppearance,
                               );
 
-                              if (
-                                previousWallpaperPath &&
-                                previousWallpaperPath !== appearanceDraft.wallpaperPath
-                              ) {
-                                try {
-                                  await removeConversationWallpaper(previousWallpaperPath);
-                                } catch (cleanupError) {
-                                  console.warn(
-                                    'Appearance saved, but the previous wallpaper could not be deleted:',
-                                    cleanupError,
-                                  );
-                                }
-                              }
-
+                              // Update the active conversation immediately instead of
+                              // waiting for the Firestore preferences listener.
+                              setConversationPreferences(current => ({
+                                ...current,
+                                [selectedId]: {
+                                  ...current[selectedId],
+                                  appearance: savedAppearance,
+                                },
+                              }));
+                              setAppearanceDraft(savedAppearance);
                               setAppearanceOpen(false);
                               setError('');
+
+                              // Storage cleanup must not delay the successful save UI.
+                              if (
+                                previousWallpaperPath &&
+                                previousWallpaperPath !== savedAppearance.wallpaperPath
+                              ) {
+                                void removeConversationWallpaper(previousWallpaperPath)
+                                  .catch(cleanupError => {
+                                    console.warn(
+                                      'Appearance saved, but the previous wallpaper could not be deleted:',
+                                      cleanupError,
+                                    );
+                                  });
+                              }
                             } catch (saveError) {
-                              setError(saveError instanceof Error ? saveError.message : 'Could not save chat appearance.');
+                              setError(saveError instanceof Error
+                                ? saveError.message
+                                : 'Could not save chat appearance.');
                             } finally {
                               setAppearanceSaving(false);
                             }
@@ -1451,11 +2137,21 @@ function App() {
                     data-background={appearanceDraft.background}
                     data-font-size={appearanceDraft.fontSize}
                     data-bubble-style={appearanceDraft.bubbleStyle}
-                    style={appearanceDraft.wallpaperURL ? {
-                      backgroundImage: `linear-gradient(rgba(8, 12, 20, .68), rgba(8, 12, 20, .68)), url("${appearanceDraft.wallpaperURL}")`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                    } : undefined}
+                    data-wallpaper={appearanceDraft.wallpaperId ?? 'none'}
+                    data-motion={appearanceDraft.wallpaperMotion ?? 'none'}
+                    data-brightness={appearanceDraft.brightness ?? 68}
+                    data-bubble-opacity={appearanceDraft.bubbleOpacity ?? 100}
+                    style={{
+                      '--pulse-sent-bubble': appearanceDraft.sentBubbleColor ?? '#2459a6',
+                      '--pulse-received-bubble': appearanceDraft.receivedBubbleColor ?? '#202a38',
+                      '--pulse-bubble-opacity': (appearanceDraft.bubbleOpacity ?? 100) / 100,
+                      '--pulse-wallpaper-dim': Math.max(0, (100 - (appearanceDraft.brightness ?? 68)) / 100 * 0.72),
+                      ...(appearanceDraft.wallpaperURL ? {
+                        backgroundImage: `url("${appearanceDraft.wallpaperURL}")`,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                      } : {}),
+                    } as CSSProperties}
                   >
                     {messages.length === 0 ? (
                       <div className="pulse-empty-chat">
@@ -1465,8 +2161,19 @@ function App() {
                       </div>
                     ) : messages.map(item => {
                       const mine = item.senderId === user.uid;
+                      const recipientReadAt = selectedPerson?.uid
+                        ? timestampMillis(readReceipts[selectedPerson.uid]?.lastReadAt)
+                        : 0;
+                      const messageCreatedAt = timestampMillis(item.createdAt);
+                      const wasRead = mine
+                        && messageCreatedAt > 0
+                        && recipientReadAt >= messageCreatedAt;
                       return (
-                        <div key={item.id} className={`pulse-message-row ${mine ? 'mine' : ''}`}>
+                        <div
+                          id={`pulse-message-${item.id}`}
+                          key={item.id}
+                          className={`pulse-message-row ${mine ? 'mine' : ''}`}
+                        >
                           <div className="pulse-message-bubble">
                             {item.type === 'image' && item.attachmentURL && (
                               <a href={item.attachmentURL} target="_blank" rel="noreferrer">
@@ -1482,8 +2189,42 @@ function App() {
                               </a>
                             )}
                             {item.type === 'text' && <span>{item.text}</span>}
-                            <small>{timestampLabel(item.createdAt)}</small>
+                            <small className="pulse-message-meta">
+                              <span>{timestampLabel(item.createdAt)}</span>
+                              {mine && (
+                                <span
+                                  className={`pulse-read-receipt${wasRead ? ' is-read' : ''}`}
+                                  aria-label={wasRead ? 'Read' : 'Unread'}
+                                  title={wasRead ? 'Read' : 'Sent, not yet read'}
+                                >✓✓</span>
+                              )}
+                            </small>
                           </div>
+                          <button
+                            type="button"
+                            className={`pulse-message-pin ${pinnedMessageIds.includes(item.id) ? 'is-pinned' : ''}`}
+                            title={pinnedMessageIds.includes(item.id) ? 'Unpin message' : 'Pin message'}
+                            aria-label={pinnedMessageIds.includes(item.id) ? 'Unpin message' : 'Pin message'}
+                            disabled={pinningMessageId === item.id}
+                            onClick={async () => {
+                              if (!user || !selectedId || pinningMessageId === item.id) return;
+                              setPinningMessageId(item.id);
+                              try {
+                                await setConversationPinnedMessage(
+                                  user.uid,
+                                  selectedId,
+                                  item.id,
+                                  !pinnedMessageIds.includes(item.id),
+                                );
+                              } catch (pinError) {
+                                setError(pinError instanceof Error ? pinError.message : 'Could not update pinned message.');
+                              } finally {
+                                setPinningMessageId(null);
+                              }
+                            }}
+                          >
+                            <Pin size={14} />
+                          </button>
                         </div>
                       );
                     })}

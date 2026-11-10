@@ -15,12 +15,58 @@ service cloud.firestore {
       return appearance is map
         && appearance.keys().hasOnly([
           'theme', 'background', 'fontSize', 'bubbleStyle',
-          'wallpaperURL', 'wallpaperPath'
+          'wallpaperURL', 'wallpaperPath', 'wallpaperId',
+          'wallpaperMotion', 'sentBubbleColor', 'receivedBubbleColor',
+          'brightness', 'bubbleOpacity'
         ])
-        && appearance.theme in ['midnight', 'ocean', 'light']
+        && appearance.theme in ['midnight', 'ocean', 'light', 'pulse-blue', 'amoled']
         && appearance.background in ['plain', 'gradient', 'dots']
         && appearance.fontSize in ['small', 'medium', 'large']
-        && appearance.bubbleStyle in ['rounded', 'soft', 'square']
+        && appearance.bubbleStyle in [
+          'rounded', 'soft', 'square', 'compact',
+          'whatsapp', 'messenger', 'pill', 'minimal'
+        ]
+        && (
+          !appearance.keys().hasAny(['wallpaperId'])
+          || appearance.wallpaperId in [
+            'none', 'minimal', 'doodle', 'nature-ocean',
+            'nature-forest', 'nature-mountains', 'nature-sunset', 'aurora'
+          ]
+        )
+        && (
+          !appearance.keys().hasAny(['wallpaperMotion'])
+          || appearance.wallpaperMotion in ['none', 'aurora', 'flow']
+        )
+        && (
+          !appearance.keys().hasAny(['sentBubbleColor'])
+          || (
+            appearance.sentBubbleColor is string
+            && appearance.sentBubbleColor.matches('^#[0-9A-Fa-f]{6}$')
+          )
+        )
+        && (
+          !appearance.keys().hasAny(['receivedBubbleColor'])
+          || (
+            appearance.receivedBubbleColor is string
+            && appearance.receivedBubbleColor.matches('^#[0-9A-Fa-f]{6}$')
+          )
+        )
+        && (
+          !appearance.keys().hasAny(['brightness'])
+          || (
+            appearance.brightness is int
+            && appearance.brightness >= 0
+            && appearance.brightness <= 100
+          )
+        )
+        && (
+          !appearance.keys().hasAny(['bubbleOpacity'])
+          || (
+            appearance.bubbleOpacity is int
+            && appearance.bubbleOpacity >= 50
+            && appearance.bubbleOpacity <= 100
+          )
+        )
         && (
           !appearance.keys().hasAny(['wallpaperURL', 'wallpaperPath'])
           || (
@@ -129,11 +175,18 @@ service cloud.firestore {
 
         allow create: if isOwner(uid)
           && request.resource.data.keys().hasOnly([
-            'pinned', 'lastReadAt', 'updatedAt', 'appearance'
+            'pinned', 'pinnedMessageIds', 'lastReadAt', 'updatedAt', 'appearance'
           ])
           && (
             !request.resource.data.keys().hasAny(['pinned'])
             || request.resource.data.pinned is bool
+          )
+          && (
+            !request.resource.data.keys().hasAny(['pinnedMessageIds'])
+            || (
+              request.resource.data.pinnedMessageIds is list
+              && request.resource.data.pinnedMessageIds.size() <= 100
+            )
           )
           && (
             !request.resource.data.keys().hasAny(['lastReadAt'])
@@ -150,11 +203,18 @@ service cloud.firestore {
 
         allow update: if isOwner(uid)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'pinned', 'lastReadAt', 'updatedAt', 'appearance'
+            'pinned', 'pinnedMessageIds', 'lastReadAt', 'updatedAt', 'appearance'
           ])
           && (
             !request.resource.data.keys().hasAny(['pinned'])
             || request.resource.data.pinned is bool
+          )
+          && (
+            !request.resource.data.keys().hasAny(['pinnedMessageIds'])
+            || (
+              request.resource.data.pinnedMessageIds is list
+              && request.resource.data.pinnedMessageIds.size() <= 100
+            )
           )
           && (
             !request.resource.data.keys().hasAny(['lastReadAt'])
@@ -294,6 +354,22 @@ service cloud.firestore {
           ]);
 
         allow update, delete: if false;
+      }
+
+      // Each participant can read receipts but write only their own.
+      match /readReceipts/{readerUid} {
+        allow read: if isParticipant(conversationId);
+
+        allow create, update: if isParticipant(conversationId)
+          && request.auth.uid == readerUid
+          && request.resource.data.uid == readerUid
+          && request.resource.data.lastReadAt is timestamp
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.keys().hasOnly([
+            'uid', 'lastReadAt', 'updatedAt'
+          ]);
+
+        allow delete: if false;
       }
     }
 
