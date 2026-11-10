@@ -169,6 +169,15 @@ export type PulseConversation = {
   updatedAt?: unknown;
 };
 
+export type PulseMessageReply = {
+  messageId: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  type: 'text' | 'image' | 'video' | 'document';
+  attachmentName?: string;
+};
+
 export type PulseMessage = {
   id: string;
   senderId: string;
@@ -179,7 +188,14 @@ export type PulseMessage = {
   attachmentPath?: string;
   attachmentContentType?: string;
   attachmentSize?: number;
+  replyTo?: PulseMessageReply;
   createdAt?: unknown;
+};
+
+export type PulseReaction = {
+  uid: string;
+  emoji: string;
+  updatedAt?: unknown;
 };
 
 export type PulseReadReceipt = {
@@ -383,6 +399,79 @@ export function watchMessages(
     },
     error => onError?.(error),
   );
+}
+
+/**
+ * Watches real reactions for one message.
+ * Each participant has one document, keyed by their authenticated UID.
+ */
+export function watchMessageReactions(
+  conversationId: string,
+  messageId: string,
+  onReactions: (items: PulseReaction[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const reactionsRef = collection(
+    database(),
+    'conversations',
+    conversationId,
+    'messages',
+    messageId,
+    'reactions',
+  );
+
+  return onSnapshot(
+    reactionsRef,
+    snapshot => {
+      onReactions(snapshot.docs.map(item => ({
+        uid: item.id,
+        ...item.data(),
+      }) as PulseReaction));
+    },
+    error => onError?.(error),
+  );
+}
+
+/**
+ * Adds, changes or removes the signed-in member's reaction.
+ * Passing null removes that member's reaction.
+ */
+export async function setMessageReaction(
+  uid: string,
+  conversationId: string,
+  messageId: string,
+  emoji: string | null,
+): Promise<void> {
+  const allowed = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+  if (!uid || !conversationId || !messageId) {
+    throw new Error('A conversation and message are required.');
+  }
+
+  if (emoji !== null && !allowed.includes(emoji)) {
+    throw new Error('That reaction is not supported.');
+  }
+
+  const reactionRef = doc(
+    database(),
+    'conversations',
+    conversationId,
+    'messages',
+    messageId,
+    'reactions',
+    uid,
+  );
+
+  if (emoji === null) {
+    await deleteDoc(reactionRef);
+    return;
+  }
+
+  await setDoc(reactionRef, {
+    uid,
+    emoji,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 /**
@@ -667,6 +756,7 @@ export async function sendTextMessage(
   conversationId: string,
   senderId: string,
   text: string,
+  replyTo?: PulseMessageReply,
 ): Promise<void> {
   const value = text.trim();
 
@@ -682,6 +772,7 @@ export async function sendTextMessage(
       senderId,
       text: value,
       type: 'text',
+      ...(replyTo ? { replyTo } : {}),
       createdAt: serverTimestamp(),
     },
   );

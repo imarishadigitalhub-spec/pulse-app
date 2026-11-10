@@ -17,9 +17,11 @@ import {
   ShieldCheck,
   UserRound,
   Phone,
+  Reply,
   Video,
   Palette,
   MoreVertical,
+  Copy,
   X,
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
@@ -46,12 +48,14 @@ import {
   watchLatestMessage,
   watchConversationPreferences,
   setConversationPinned,
-  setConversationPinnedMessage,
   setConversationAppearance,
   uploadConversationWallpaper,
   removeConversationWallpaper,
   markConversationRead,
   watchConversationReadReceipts,
+  watchMessageReactions,
+  setMessageReaction,
+  setConversationPinnedMessage,
   watchOwnProfile,
   watchProfile,
   type PublicProfile,
@@ -61,11 +65,15 @@ import {
   type PulseConversationPreference,
   type PulseConversationAppearance,
   type PulseReadReceipt,
+  type PulseReaction,
 } from './lib/pulse-data';
+import type { PulseMessageReply } from './lib/pulse-data';
 
 
 type Tab = 'Chats' | 'Explore' | 'Create' | 'Activity' | 'Profile';
 
+
+const MESSAGE_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'] as const;
 
 const BUBBLE_COLOR_PALETTE = [
   '#2563eb', '#0ea5e9', '#0891b2', '#0d9488',
@@ -180,19 +188,39 @@ function inboxDateLabel(value: unknown): string {
   if (typeof timestamp.toDate !== 'function') return '';
 
   const date = timestamp.toDate();
+  if (Number.isNaN(date.getTime())) return '';
+
   const now = new Date();
 
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const messageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-  const daysAgo = Math.floor(
-    (today.getTime() - messageDay.getTime()) / 86400000
+  const todayKey = Date.UTC(
+    now.getFullYear(), now.getMonth(), now.getDate()
+  );
+  const messageKey = Date.UTC(
+    date.getFullYear(), date.getMonth(), date.getDate()
   );
 
-  if (daysAgo <= 0) return 'Today';
+  const daysAgo = Math.round(
+    (todayKey - messageKey) / 86400000
+  );
+
+  if (daysAgo <= 0) {
+    return date.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
   if (daysAgo === 1) return 'Yesterday';
 
-  return date.toLocaleDateString([], { weekday: 'long' });
+  if (daysAgo <= 6) {
+    return date.toLocaleDateString([], { weekday: 'long' });
+  }
+
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+
+  return `${day}/${month}/${year}`;
 }
 
 function formatPresenceLastSeen(timestamp: number | null, now: number): string {
@@ -257,6 +285,17 @@ function App() {
   const [conversationPreferences, setConversationPreferences] = useState<Record<string, PulseConversationPreference>>({});
   const [messages, setMessages] = useState<PulseMessage[]>([]);
   const [readReceipts, setReadReceipts] = useState<Record<string, PulseReadReceipt>>({});
+  const [messageReactions, setMessageReactions] = useState<Record<string, PulseReaction[]>>({});
+  const messageIds = useMemo(
+    () => messages.map(message => message.id).join('|'),
+    [messages],
+  );
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState<PulseMessage | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressMessageClickRef = useRef(false);
+  const quoteHighlightTimerRef = useRef<number | null>(null);
   const [contactPresence, setContactPresence] = useState<ContactPresence>({
     online: false,
     available: false,
@@ -276,9 +315,25 @@ function App() {
   const [viewedProfile, setViewedProfile] = useState<PublicProfile | null>(null);
   const [messageText, setMessageText] = useState('');
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+
+  useEffect(() => {
+    setSelectedMessageId(null);
+    setReplyingTo(null);
+    setConversationMenuOpen(false);
+  }, [selectedId]);
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
+  const [callMenuOpen, setCallMenuOpen] = useState(false);
   const conversationHeadingRef = useRef<HTMLDivElement | null>(null);
   const conversationMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+    }
+    if (quoteHighlightTimerRef.current !== null) {
+      window.clearTimeout(quoteHighlightTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (!conversationMenuOpen) return;
@@ -312,7 +367,6 @@ function App() {
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
   const [mediaBrowserOpen, setMediaBrowserOpen] = useState(false);
   const [pinnedMessagesOpen, setPinnedMessagesOpen] = useState(false);
-  const [pinningMessageId, setPinningMessageId] = useState<string | null>(null);
   const [appearanceSaving, setAppearanceSaving] = useState(false);
   const [appearanceDraft, setAppearanceDraft] = useState<PulseConversationAppearance>({
     theme: 'midnight',
@@ -702,6 +756,40 @@ function App() {
     );
   }, [selectedId, user]);
 
+  // Subscribe to reactions by stable message IDs, not message object identity.
+  // This avoids rebuilding listeners when unrelated message state changes.
+  useEffect(() => {
+    if (!selectedId || !user || !messageIds) {
+      setMessageReactions({});
+      return;
+    }
+
+    const ids = messageIds.split('|');
+    const activeIds = new Set(ids);
+
+    setMessageReactions(current =>
+      Object.fromEntries(
+        Object.entries(current).filter(([messageId]) => activeIds.has(messageId)),
+      ),
+    );
+
+    const unsubscribers = ids.map(messageId =>
+      watchMessageReactions(
+        selectedId,
+        messageId,
+        reactions => {
+          setMessageReactions(current => ({
+            ...current,
+            [messageId]: reactions,
+          }));
+        },
+        err => setError('Message reactions: ' + err.message),
+      ),
+    );
+
+    return () => unsubscribers.forEach(unsubscribe => unsubscribe());
+  }, [selectedId, user, messageIds]);
+
   useEffect(() => {
     if (!user) {
       setPosts([]);
@@ -929,6 +1017,7 @@ function App() {
     : [];
 
   const pinnedMessages = messages.filter(item => pinnedMessageIds.includes(item.id));
+  const selectedMessage = messages.find(item => item.id === selectedMessageId) ?? null;
 
   const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
   const messageSearchResults = normalizedMessageSearch
@@ -1011,6 +1100,43 @@ function App() {
     }
   }
 
+  function createReplySnapshot(item: PulseMessage): PulseMessageReply {
+    return {
+      messageId: item.id,
+      senderId: item.senderId,
+      senderName: item.senderId === user?.uid
+        ? (profile?.displayName || user?.displayName || 'You')
+        : (selectedPerson?.displayName || 'Contact'),
+      text: item.text || '',
+      type: item.type,
+      ...(item.attachmentName ? { attachmentName: item.attachmentName } : {}),
+    };
+  }
+
+  function startReply(item: PulseMessage) {
+    setReplyingTo(item);
+    setSelectedMessageId(null);
+    setConversationMenuOpen(false);
+  }
+
+  function jumpToQuotedMessage(messageId: string) {
+    setSelectedMessageId(messageId);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`pulse-message-${messageId}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    });
+
+    if (quoteHighlightTimerRef.current !== null) {
+      window.clearTimeout(quoteHighlightTimerRef.current);
+    }
+    quoteHighlightTimerRef.current = window.setTimeout(() => {
+      setSelectedMessageId(current => current === messageId ? null : current);
+      quoteHighlightTimerRef.current = null;
+    }, 2200);
+  }
+
   async function sendMessage() {
     if (!user || !selectedId || !messageText.trim() || sending) return;
 
@@ -1018,8 +1144,14 @@ function App() {
     setError('');
 
     try {
-      await sendTextMessage(selectedId, user.uid, messageText);
+      await sendTextMessage(
+        selectedId,
+        user.uid,
+        messageText,
+        replyingTo ? createReplySnapshot(replyingTo) : undefined,
+      );
       setMessageText('');
+      setReplyingTo(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Message could not be sent.');
     } finally {
@@ -1465,22 +1597,37 @@ function App() {
                     </div>
 
                     <div className="pulse-chat-call-actions">
-                      <button
-                        type="button"
-                        disabled
-                        title="Voice calling will be available in the audio/video milestone"
-                        aria-label="Voice calling coming soon"
-                      >
-                        <Phone size={18} />
-                      </button>
-                      <button
-                        type="button"
-                        disabled
-                        title="Video calling will be available in the audio/video milestone"
-                        aria-label="Video calling coming soon"
-                      >
-                        <Video size={19} />
-                      </button>
+                      <div className="pulse-call-dropdown-wrap">
+                        <button
+                          type="button"
+                          className="pulse-call-dropdown-trigger"
+                          title="Calling options"
+                          aria-label="Open voice and video calling options"
+                          aria-haspopup="menu"
+                          aria-expanded={callMenuOpen}
+                          onClick={() => {
+                            setCallMenuOpen(value => !value);
+                            setConversationMenuOpen(false);
+                          }}
+                        >
+                          <Phone size={18} />
+                          <ChevronDown size={14} />
+                        </button>
+                        {callMenuOpen && (
+                          <div className="pulse-call-dropdown" role="menu" aria-label="Calling options">
+                            <button type="button" role="menuitem" disabled title="Voice calling will be available in the WebRTC audio/video milestone">
+                              <Phone size={16} />
+                              <span>Voice call</span>
+                              <small>Coming soon</small>
+                            </button>
+                            <button type="button" role="menuitem" disabled title="Video calling will be available in the WebRTC audio/video milestone">
+                              <Video size={16} />
+                              <span>Video call</span>
+                              <small>Coming soon</small>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       <button
                         type="button"
                         className="pulse-chat-menu-trigger"
@@ -1496,7 +1643,79 @@ function App() {
                   </div>
 
                   {conversationMenuOpen && (
-                    <div ref={conversationMenuRef} className="pulse-conversation-menu" role="menu" aria-label="Conversation options">
+                    <div
+                      ref={conversationMenuRef}
+                      className="pulse-conversation-menu"
+                      role="menu"
+                      aria-label={selectedMessage ? 'Selected message options' : 'Conversation options'}
+                    >
+                      {selectedMessage ? (
+                        <>
+                          <div className="pulse-context-menu-heading">
+                            <strong>Message options</strong>
+                            <small>{selectedMessage.text || selectedMessage.attachmentName || 'Shared attachment'}</small>
+                          </div>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              startReply(selectedMessage);
+                              setConversationMenuOpen(false);
+                              setSelectedMessageId(null);
+                            }}
+                          >
+                            <Reply size={17} /> Reply
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={async () => {
+                              const pinned = pinnedMessageIds.includes(selectedMessage.id);
+                              try {
+                                await setConversationPinnedMessage(
+                                  user.uid,
+                                  selectedId!,
+                                  selectedMessage.id,
+                                  !pinned,
+                                );
+                                setConversationMenuOpen(false);
+                                setSelectedMessageId(null);
+                              } catch (actionError) {
+                                setError(actionError instanceof Error ? actionError.message : 'Could not update pinned message.');
+                              }
+                            }}
+                          >
+                            <Pin size={17} /> {pinnedMessageIds.includes(selectedMessage.id) ? 'Unpin message' : 'Pin message'}
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={!selectedMessage.text}
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(selectedMessage.text);
+                                setConversationMenuOpen(false);
+                                setSelectedMessageId(null);
+                              } catch {
+                                setError('Clipboard access is unavailable in this browser.');
+                              }
+                            }}
+                          >
+                            <Copy size={17} /> Copy text
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setConversationMenuOpen(false);
+                              setSelectedMessageId(null);
+                            }}
+                          >
+                            <X size={17} /> Dismiss selection
+                          </button>
+                        </>
+                      ) : (
+                        <>
                       <button
                         type="button"
                         role="menuitem"
@@ -1579,6 +1798,8 @@ function App() {
                         <X size={17} /> Disappearing messages
                         <small>Coming soon</small>
                       </button>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -1742,7 +1963,7 @@ function App() {
                         </button>
                       </div>
                       {pinnedMessages.length === 0 ? (
-                        <p className="pulse-library-empty">No pinned messages yet. Use the pin control beside a message to save it here.</p>
+                        <p className="pulse-library-empty">No pinned messages yet. Select a message and choose Pin to save it here.</p>
                       ) : (
                         <div className="pulse-pinned-list">
                           {pinnedMessages.map(item => (
@@ -2172,9 +2393,141 @@ function App() {
                         <div
                           id={`pulse-message-${item.id}`}
                           key={item.id}
-                          className={`pulse-message-row ${mine ? 'mine' : ''}`}
+                          className={`pulse-message-row ${mine ? 'mine' : ''}${selectedMessageId === item.id ? ' is-selected' : ''}`}
+                          onClick={() => {
+                            if (suppressMessageClickRef.current) {
+                              suppressMessageClickRef.current = false;
+                              return;
+                            }
+                            setSelectedMessageId(current => current === item.id ? null : item.id);
+                            setConversationMenuOpen(false);
+                          }}
+                          onTouchStart={event => {
+                            const touch = event.touches[0];
+                            if (!touch) return;
+                            touchStartRef.current = {
+                              x: touch.clientX,
+                              y: touch.clientY,
+                            };
+                            suppressMessageClickRef.current = false;
+
+                            if (longPressTimerRef.current !== null) {
+                              window.clearTimeout(longPressTimerRef.current);
+                            }
+                            longPressTimerRef.current = window.setTimeout(() => {
+                              setSelectedMessageId(item.id);
+                              setConversationMenuOpen(false);
+                              suppressMessageClickRef.current = true;
+                              longPressTimerRef.current = null;
+                            }, 520);
+                          }}
+                          onTouchMove={event => {
+                            const touch = event.touches[0];
+                            const start = touchStartRef.current;
+                            if (!touch || !start) return;
+
+                            const dx = touch.clientX - start.x;
+                            const dy = touch.clientY - start.y;
+
+                            if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                              if (longPressTimerRef.current !== null) {
+                                window.clearTimeout(longPressTimerRef.current);
+                                longPressTimerRef.current = null;
+                              }
+                            }
+
+                            if (dx > 58 && Math.abs(dx) > Math.abs(dy) * 1.35) {
+                              touchStartRef.current = null;
+                              suppressMessageClickRef.current = true;
+                              startReply(item);
+                            }
+                          }}
+                          onTouchEnd={() => {
+                            if (longPressTimerRef.current !== null) {
+                              window.clearTimeout(longPressTimerRef.current);
+                              longPressTimerRef.current = null;
+                            }
+                            touchStartRef.current = null;
+                            if (suppressMessageClickRef.current) {
+                              window.setTimeout(() => {
+                                suppressMessageClickRef.current = false;
+                              }, 500);
+                            }
+                          }}
+                          onTouchCancel={() => {
+                            if (longPressTimerRef.current !== null) {
+                              window.clearTimeout(longPressTimerRef.current);
+                              longPressTimerRef.current = null;
+                            }
+                            touchStartRef.current = null;
+                          }}
+                          onContextMenu={event => {
+                            event.preventDefault();
+                            setSelectedMessageId(item.id);
+                            setConversationMenuOpen(false);
+                          }}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              setSelectedMessageId(current => current === item.id ? null : item.id);
+                            }
+                          }}
+                          tabIndex={0}
+                          aria-label={`Message from ${mine ? 'you' : selectedPerson?.displayName || 'contact'}. Select for reactions and message options.`}
                         >
+                          {selectedMessageId === item.id && (
+                            <div className="pulse-message-reaction-picker" aria-label="Add a reaction">
+                              {MESSAGE_REACTION_EMOJIS.map(emoji => {
+                                const ownReaction = (messageReactions[item.id] ?? [])
+                                  .find(reaction => reaction.uid === user.uid)?.emoji;
+                                return (
+                                  <button
+                                    type="button"
+                                    key={emoji}
+                                    className={ownReaction === emoji ? 'is-active' : ''}
+                                    aria-label={`${ownReaction === emoji ? 'Remove' : 'React with'} ${emoji}`}
+                                    aria-pressed={ownReaction === emoji}
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      void setMessageReaction(
+                                        user.uid,
+                                        selectedId!,
+                                        item.id,
+                                        ownReaction === emoji ? null : emoji,
+                                      ).catch(actionError => {
+                                        setError(actionError instanceof Error
+                                          ? actionError.message
+                                          : 'Could not save reaction.');
+                                      });
+                                    }}
+                                  >
+                                    {emoji}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                           <div className="pulse-message-bubble">
+                            {item.replyTo && (
+                              <button
+                                type="button"
+                                className="pulse-message-quote"
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  jumpToQuotedMessage(item.replyTo!.messageId);
+                                }}
+                                aria-label={`Jump to message from ${item.replyTo.senderName}`}
+                              >
+                                <strong>{item.replyTo.senderName}</strong>
+                                <span>
+                                  {item.replyTo.type === 'image' ? 'Photo' :
+                                   item.replyTo.type === 'video' ? 'Video' :
+                                   item.replyTo.type === 'document'
+                                     ? (item.replyTo.attachmentName || 'Document')
+                                     : (item.replyTo.text || 'Message')}
+                                </span>
+                              </button>
+                            )}
                             {item.type === 'image' && item.attachmentURL && (
                               <a href={item.attachmentURL} target="_blank" rel="noreferrer">
                                 <img className="pulse-chat-attachment-image" src={item.attachmentURL} alt={item.attachmentName || 'Shared image'} />
@@ -2189,6 +2542,11 @@ function App() {
                               </a>
                             )}
                             {item.type === 'text' && <span>{item.text}</span>}
+                            {pinnedMessageIds.includes(item.id) && (
+                              <span className="pulse-message-pinned-indicator" title="Pinned message">
+                                <Pin size={11} /> Pinned
+                              </span>
+                            )}
                             <small className="pulse-message-meta">
                               <span>{timestampLabel(item.createdAt)}</span>
                               {mine && (
@@ -2200,31 +2558,22 @@ function App() {
                               )}
                             </small>
                           </div>
-                          <button
-                            type="button"
-                            className={`pulse-message-pin ${pinnedMessageIds.includes(item.id) ? 'is-pinned' : ''}`}
-                            title={pinnedMessageIds.includes(item.id) ? 'Unpin message' : 'Pin message'}
-                            aria-label={pinnedMessageIds.includes(item.id) ? 'Unpin message' : 'Pin message'}
-                            disabled={pinningMessageId === item.id}
-                            onClick={async () => {
-                              if (!user || !selectedId || pinningMessageId === item.id) return;
-                              setPinningMessageId(item.id);
-                              try {
-                                await setConversationPinnedMessage(
-                                  user.uid,
-                                  selectedId,
-                                  item.id,
-                                  !pinnedMessageIds.includes(item.id),
+                          {(messageReactions[item.id] ?? []).length > 0 && (
+                            <div className="pulse-message-reaction-summary" aria-label="Message reactions">
+                              {MESSAGE_REACTION_EMOJIS.map(emoji => {
+                                const count = (messageReactions[item.id] ?? [])
+                                  .filter(reaction => reaction.emoji === emoji).length;
+                                if (!count) return null;
+                                const own = (messageReactions[item.id] ?? [])
+                                  .some(reaction => reaction.uid === user.uid && reaction.emoji === emoji);
+                                return (
+                                  <span key={emoji} className={own ? 'is-own-reaction' : ''}>
+                                    {emoji}<small>{count}</small>
+                                  </span>
                                 );
-                              } catch (pinError) {
-                                setError(pinError instanceof Error ? pinError.message : 'Could not update pinned message.');
-                              } finally {
-                                setPinningMessageId(null);
-                              }
-                            }}
-                          >
-                            <Pin size={14} />
-                          </button>
+                              })}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -2234,6 +2583,31 @@ function App() {
                     <div className="pulse-upload-progress">
                       <span>Uploading attachment… {attachmentProgress}%</span>
                       <progress value={attachmentProgress} max="100" />
+                    </div>
+                  )}
+                  {replyingTo && (
+                    <div className="pulse-reply-composer-preview">
+                      <div>
+                        <strong>Replying to {
+                          replyingTo.senderId === user?.uid
+                            ? 'yourself'
+                            : (selectedPerson?.displayName || 'Contact')
+                        }</strong>
+                        <span>
+                          {replyingTo.type === 'image' ? 'Photo' :
+                           replyingTo.type === 'video' ? 'Video' :
+                           replyingTo.type === 'document'
+                             ? (replyingTo.attachmentName || 'Document')
+                             : (replyingTo.text || 'Message')}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Cancel reply"
+                        onClick={() => setReplyingTo(null)}
+                      >
+                        <X size={17} />
+                      </button>
                     </div>
                   )}
                   <form

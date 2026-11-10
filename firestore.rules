@@ -347,13 +347,88 @@ service cloud.firestore {
               )
             )
           )
+          && (
+            !('replyTo' in request.resource.data)
+            || (
+              request.resource.data.replyTo is map
+              && request.resource.data.replyTo.messageId is string
+              && request.resource.data.replyTo.messageId.size() > 0
+              && request.resource.data.replyTo.senderId is string
+              && request.resource.data.replyTo.senderId
+                in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants
+              && request.resource.data.replyTo.senderName is string
+              && request.resource.data.replyTo.senderName.size() <= 80
+              && request.resource.data.replyTo.text is string
+              && request.resource.data.replyTo.text.size() <= 5000
+              && request.resource.data.replyTo.type
+                in ['text', 'image', 'video', 'document']
+              && (
+                !('attachmentName' in request.resource.data.replyTo)
+                || (
+                  request.resource.data.replyTo.attachmentName is string
+                  && request.resource.data.replyTo.attachmentName.size() <= 255
+                )
+              )
+              && request.resource.data.replyTo.keys().hasOnly([
+                'messageId', 'senderId', 'senderName',
+                'text', 'type', 'attachmentName'
+              ])
+              && exists(
+                /databases/$(database)/documents/conversations/$(conversationId)/messages/$(request.resource.data.replyTo.messageId)
+              )
+              && get(
+                /databases/$(database)/documents/conversations/$(conversationId)/messages/$(request.resource.data.replyTo.messageId)
+              ).data.senderId == request.resource.data.replyTo.senderId
+              && get(
+                /databases/$(database)/documents/conversations/$(conversationId)/messages/$(request.resource.data.replyTo.messageId)
+              ).data.text == request.resource.data.replyTo.text
+              && get(
+                /databases/$(database)/documents/conversations/$(conversationId)/messages/$(request.resource.data.replyTo.messageId)
+              ).data.type == request.resource.data.replyTo.type
+              && (
+                (
+                  'attachmentName' in get(
+                    /databases/$(database)/documents/conversations/$(conversationId)/messages/$(request.resource.data.replyTo.messageId)
+                  ).data
+                  && 'attachmentName' in request.resource.data.replyTo
+                  && get(
+                    /databases/$(database)/documents/conversations/$(conversationId)/messages/$(request.resource.data.replyTo.messageId)
+                  ).data.attachmentName == request.resource.data.replyTo.attachmentName
+                )
+                || (
+                  !('attachmentName' in get(
+                    /databases/$(database)/documents/conversations/$(conversationId)/messages/$(request.resource.data.replyTo.messageId)
+                  ).data)
+                  && !('attachmentName' in request.resource.data.replyTo)
+                )
+              )
+            )
+          )
           && request.resource.data.keys().hasOnly([
             'senderId', 'text', 'type', 'createdAt',
             'attachmentURL', 'attachmentName', 'attachmentPath',
-            'attachmentContentType', 'attachmentSize'
+            'attachmentContentType', 'attachmentSize', 'replyTo'
           ]);
 
         allow update, delete: if false;
+
+        // Each participant owns exactly one reaction record per message.
+        // Reactions are readable by conversation participants.
+        match /reactions/{reactorUid} {
+          allow read: if isParticipant(conversationId);
+
+          allow create, update: if isParticipant(conversationId)
+            && request.auth.uid == reactorUid
+            && request.resource.data.uid == reactorUid
+            && request.resource.data.emoji in ['👍', '❤️', '😂', '😮', '😢', '🙏']
+            && request.resource.data.updatedAt is timestamp
+            && request.resource.data.keys().hasOnly([
+              'uid', 'emoji', 'updatedAt'
+            ]);
+
+          allow delete: if isParticipant(conversationId)
+            && request.auth.uid == reactorUid;
+        }
       }
 
       // Each participant can read receipts but write only their own.

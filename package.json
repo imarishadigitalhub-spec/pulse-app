@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:rules": "npx firebase-tools emulators:exec --only firestore --project demo-pulse-rules \"node --test tests/firestore.rules.test.mjs\""
   },
   "dependencies": {
     "@tanstack/react-query": "^5.105.0",
@@ -19,6 +20,7 @@
     "zustand": "^5.0.16"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
     "@types/react": "~19.3.0",
     "@types/react-dom": "latest",
     "@vitejs/plugin-react": "^6.2.1",
