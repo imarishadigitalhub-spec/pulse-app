@@ -3438,7 +3438,7 @@ img, video { max-width: 100%; }
 @media (max-width: 600px) {
   .pulse-conversation-active .pulse-chat-heading {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;
-    gap: 4px !important;
+    gap: 8px !important;
     padding-left: 8px !important;
     padding-right: 8px !important;
   }
@@ -4123,4 +4123,315 @@ img, video { max-width: 100%; }
 }
 .pulse-conversation-active .pulse-message-reaction-summary > span {
   box-shadow: 0 2px 8px rgba(0, 0, 0, .22);
+}
+
+
+/* PULSE WhatsApp-style conversation refinement */
+.pulse-conversation-active .pulse-message-list {
+  min-width: 0;
+  align-items: stretch;
+}
+
+.pulse-conversation-active .pulse-message-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  align-self: stretch;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  outline: none;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pulse-conversation-active .pulse-message-row.mine {
+  align-items: flex-end;
+  align-self: stretch;
+}
+
+.pulse-conversation-active .pulse-message-row .pulse-message-bubble {
+  width: fit-content;
+  min-width: 0;
+  max-width: min(76%, 510px);
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+.pulse-conversation-active .pulse-message-meta,
+.pulse-conversation-active .pulse-message-meta > span {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.pulse-date-separator {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  margin: 7px 0;
+  pointer-events: none;
+}
+
+.pulse-date-separator > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 25px;
+  padding: 5px 11px;
+  border: 1px solid rgba(148, 163, 184, .17);
+  border-radius: 999px;
+  background: rgba(20, 29, 43, .88);
+  color: #aebbd0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  line-height: 1;
+  text-align: center;
+}
+
+.pulse-conversation-active .pulse-composer-dock {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-top: 1px solid rgba(148, 163, 184, .12);
+  background: #0c101a;
+}
+
+.pulse-conversation-active .pulse-composer-dock .pulse-upload-progress {
+  flex: 0 0 auto;
+}
+
+.pulse-conversation-active .pulse-composer-dock .pulse-reply-composer-preview {
+  flex: 0 0 auto;
+  margin: 0;
+  border: 0;
+  border-left: 3px solid #60a5fa;
+  border-radius: 0;
+  padding: 9px 14px;
+  background: rgba(30, 49, 75, .58);
+}
+
+.pulse-conversation-active .pulse-composer-dock .pulse-composer {
+  flex: 0 0 auto;
+  min-width: 0;
+  border-top: 0;
+}
+
+.pulse-conversation-active .pulse-chat-heading {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;
+}
+
+.pulse-conversation-active .pulse-chat-profile-trigger,
+.pulse-conversation-active .pulse-chat-profile-trigger > span:last-child {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.pulse-conversation-active .pulse-chat-profile-trigger strong,
+.pulse-conversation-active .pulse-chat-profile-trigger small {
+  display: block;
+  max-width: clamp(58px, 19vw, 145px) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+}
+
+.pulse-conversation-active .pulse-chat-presence-slot {
+  grid-column: 2 !important;
+  justify-self: center !important;
+  min-width: 0;
+}
+
+.pulse-conversation-active .pulse-chat-call-actions {
+  grid-column: 3 !important;
+  justify-self: end !important;
+  min-width: 0;
+  gap: 4px !important;
+}
+
+.pulse-conversation-active .pulse-message-row,
+.pulse-conversation-active .pulse-message-row .pulse-message-bubble,
+.pulse-conversation-active .pulse-message-row .pulse-message-bubble * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+.pulse-conversation-active .pulse-message-row img {
+  -webkit-user-drag: none;
+}
+
+@media (max-width: 600px) {
+  .pulse-conversation-active .pulse-message-row .pulse-message-bubble {
+    max-width: min(76%, 510px);
+  }
+
+  .pulse-conversation-active .pulse-composer-dock .pulse-reply-composer-preview {
+    padding: 8px 11px;
+  }
+
+  .pulse-conversation-active .pulse-composer-dock .pulse-composer {
+    gap: 6px;
+  }
+}
+
+
+/* PULSE WhatsApp-style reaction and stable contact header refinement */
+
+/* Keep the contact header outside the independently scrolling message list. */
+.pulse-conversation-active .pulse-chat-window {
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+.pulse-conversation-active .pulse-chat-heading {
+  position: relative !important;
+  z-index: 30;
+  flex: 0 0 64px !important;
+  min-height: 64px !important;
+  height: 64px !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 12px !important;
+  overflow: visible !important;
+}
+
+.pulse-conversation-active .pulse-chat-profile-trigger {
+  grid-column: 1 !important;
+  justify-self: stretch !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  width: 100%;
+}
+
+.pulse-conversation-active .pulse-chat-profile-trigger > span:last-child {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  text-align: left !important;
+}
+
+.pulse-conversation-active .pulse-chat-profile-trigger strong {
+  display: block !important;
+  width: 100%;
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  text-align: left !important;
+  line-height: 1.2;
+}
+
+.pulse-conversation-active .pulse-chat-profile-trigger small {
+  display: block !important;
+  max-width: 100% !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap !important;
+  text-align: left !important;
+}
+
+.pulse-conversation-active .pulse-chat-presence-slot {
+  grid-column: 2 !important;
+  justify-self: center !important;
+  min-width: 0 !important;
+  white-space: nowrap;
+}
+
+.pulse-conversation-active .pulse-chat-call-actions {
+  grid-column: 3 !important;
+  justify-self: end !important;
+  display: flex !important;
+  align-items: center !important;
+  min-width: max-content !important;
+  gap: 4px !important;
+  margin: 0 !important;
+}
+
+/* The message list scrolls; the header and composer remain in place. */
+.pulse-conversation-active .pulse-message-list {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Reaction summary stays attached to the lower edge of its message bubble. */
+.pulse-conversation-active .pulse-message-bubble.has-reactions {
+  position: relative !important;
+  overflow: visible !important;
+  margin-bottom: 13px !important;
+}
+
+.pulse-conversation-active .pulse-message-reaction-summary {
+  position: absolute !important;
+  left: 9px !important;
+  right: auto !important;
+  bottom: -13px !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  width: max-content !important;
+  max-width: min(280px, calc(100vw - 32px)) !important;
+  margin: 0 !important;
+  z-index: 5 !important;
+}
+
+.pulse-conversation-active .pulse-message-row.mine .pulse-message-reaction-summary {
+  left: auto !important;
+  right: 9px !important;
+}
+
+@media (max-width: 600px) {
+  .pulse-conversation-active .pulse-chat-heading {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;
+    gap: 8px !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+
+  .pulse-conversation-active .pulse-chat-profile-trigger {
+    gap: 6px !important;
+  }
+
+  .pulse-conversation-active .pulse-chat-profile-trigger .pulse-avatar {
+    width: 34px !important;
+    height: 34px !important;
+    flex: 0 0 34px !important;
+  }
+
+  .pulse-conversation-active .pulse-chat-profile-trigger strong {
+    font-size: 12px !important;
+  }
+
+  .pulse-conversation-active .pulse-chat-profile-trigger small {
+    font-size: 10px !important;
+  }
+
+  .pulse-conversation-active .pulse-chat-presence-label {
+    font-size: 10px !important;
+  }
+
+  .pulse-conversation-active .pulse-chat-call-actions {
+    gap: 2px !important;
+  }
 }

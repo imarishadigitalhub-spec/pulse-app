@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
   PlusSquare,
@@ -179,6 +179,39 @@ function timestampLabel(value: unknown): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function messageDateSeparatorLabel(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+
+  const timestamp = value as { toDate?: () => Date };
+  if (typeof timestamp.toDate !== 'function') return '';
+
+  const date = timestamp.toDate();
+  if (Number.isNaN(date.getTime())) return '';
+
+  const now = new Date();
+  const todayKey = Date.UTC(
+    now.getFullYear(), now.getMonth(), now.getDate()
+  );
+  const messageKey = Date.UTC(
+    date.getFullYear(), date.getMonth(), date.getDate()
+  );
+  const daysAgo = Math.round((todayKey - messageKey) / 86400000);
+
+  if (daysAgo === 0) return 'TODAY';
+  if (daysAgo === 1) return 'YESTERDAY';
+
+  if (daysAgo >= 2 && daysAgo <= 6) {
+    return date.toLocaleDateString([], { weekday: 'long' }).toUpperCase();
+  }
+
+  const month = date.toLocaleDateString([], { month: 'long' }).toUpperCase();
+  const label = `${date.getDate()} ${month}`;
+
+  return date.getFullYear() === now.getFullYear()
+    ? label
+    : `${label} ${date.getFullYear()}`;
 }
 
 function inboxDateLabel(value: unknown): string {
@@ -2380,8 +2413,15 @@ function App() {
                         <strong>Start a private conversation</strong>
                         <p>Your messages are stored in your PULSE account and synchronized live.</p>
                       </div>
-                    ) : messages.map(item => {
+                    ) : messages.map((item, index) => {
                       const mine = item.senderId === user.uid;
+                      const currentDateLabel = messageDateSeparatorLabel(item.createdAt);
+                      const previousDateLabel = index > 0
+                        ? messageDateSeparatorLabel(messages[index - 1].createdAt)
+                        : '';
+                      const showDateSeparator = Boolean(
+                        currentDateLabel && currentDateLabel !== previousDateLabel
+                      );
                       const recipientReadAt = selectedPerson?.uid
                         ? timestampMillis(readReceipts[selectedPerson.uid]?.lastReadAt)
                         : 0;
@@ -2390,9 +2430,14 @@ function App() {
                         && messageCreatedAt > 0
                         && recipientReadAt >= messageCreatedAt;
                       return (
-                        <div
+                        <Fragment key={item.id}>
+                          {showDateSeparator && (
+                            <div className="pulse-date-separator" role="separator">
+                              <span>{currentDateLabel}</span>
+                            </div>
+                          )}
+                          <div
                           id={`pulse-message-${item.id}`}
-                          key={item.id}
                           className={`pulse-message-row ${mine ? 'mine' : ''}${selectedMessageId === item.id ? ' is-selected' : ''}`}
                           onClick={() => {
                             if (suppressMessageClickRef.current) {
@@ -2492,18 +2537,23 @@ function App() {
                                     className={ownReaction === emoji ? 'is-active' : ''}
                                     aria-label={`${ownReaction === emoji ? 'Remove' : 'React with'} ${emoji}`}
                                     aria-pressed={ownReaction === emoji}
-                                    onClick={event => {
+                                    onClick={async event => {
                                       event.stopPropagation();
-                                      void setMessageReaction(
-                                        user.uid,
-                                        selectedId!,
-                                        item.id,
-                                        ownReaction === emoji ? null : emoji,
-                                      ).catch(actionError => {
+                                      try {
+                                        await setMessageReaction(
+                                          user.uid,
+                                          selectedId!,
+                                          item.id,
+                                          ownReaction === emoji ? null : emoji,
+                                        );
+                                        setSelectedMessageId(current =>
+                                          current === item.id ? null : current,
+                                        );
+                                      } catch (actionError) {
                                         setError(actionError instanceof Error
                                           ? actionError.message
                                           : 'Could not save reaction.');
-                                      });
+                                      }
                                     }}
                                   >
                                     {emoji}
@@ -2579,11 +2629,13 @@ function App() {
                               </div>
                             )}
                           </div>
-                        </div>
+                          </div>
+                        </Fragment>
                       );
                     })}
                   </div>
 
+                  <div className="pulse-composer-dock">
                   {attachmentBusy && (
                     <div className="pulse-upload-progress">
                       <span>Uploading attachment… {attachmentProgress}%</span>
@@ -2657,6 +2709,7 @@ function App() {
                       <Send size={18} />
                     </button>
                   </form>
+                  </div>
                 </>
               </div>
             )}
