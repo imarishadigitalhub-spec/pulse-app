@@ -4435,3 +4435,163 @@ img, video { max-width: 100%; }
     gap: 2px !important;
   }
 }
+
+
+/* PULSE Activity: live notifications */
+.pulse-activity-page { max-width: 900px; }
+.pulse-activity-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.pulse-activity-heading .pulse-lead { margin-bottom: 22px; }
+.pulse-activity-unread-count {
+  padding: 7px 11px;
+  border: 1px solid #294b83;
+  border-radius: 999px;
+  background: #10203a;
+  color: #a9c7ff;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.pulse-activity-sections {
+  display: flex;
+  gap: 8px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid #252b3b;
+}
+.pulse-activity-sections button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 15px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #929aaf;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pulse-activity-sections button.active {
+  border-color: #294b83;
+  background: #12213a;
+  color: #a9c7ff;
+}
+.pulse-activity-sections button > span {
+  min-width: 19px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: white;
+  font-size: 10px;
+  text-align: center;
+}
+.pulse-notification-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 19px 0 13px;
+}
+.pulse-notification-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.pulse-notification-filters button {
+  padding: 8px 12px;
+  border: 1px solid #293144;
+  border-radius: 999px;
+  background: #101522;
+  color: #a4adbf;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.pulse-notification-filters button.active {
+  border-color: #3268c6;
+  background: #15294a;
+  color: #c6d9ff;
+}
+.pulse-mark-read {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: #9ebeff;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.pulse-mark-read:disabled { opacity: .4; cursor: not-allowed; }
+.pulse-notification-list {
+  overflow: hidden;
+  border: 1px solid #252b3b;
+  border-radius: 15px;
+  background: #0e121d;
+}
+.pulse-notification-item {
+  min-height: 82px;
+  padding: 13px 17px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid #202738;
+}
+.pulse-notification-item:last-child { border-bottom: 0; }
+.pulse-notification-item.unread { background: rgba(34, 76, 139, .12); }
+.pulse-notification-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.pulse-notification-main:not(:disabled) { cursor: pointer; }
+.pulse-notification-main:disabled { cursor: default; }
+.pulse-notification-avatar {
+  width: 43px;
+  height: 43px;
+  flex: 0 0 43px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #303b53;
+  border-radius: 50%;
+  background: #172544;
+  color: #9ebeff;
+}
+.pulse-notification-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  color: #aab2c3;
+  font-size: 12px;
+}
+.pulse-notification-copy strong { color: #f0f2fa; font-size: 13px; }
+.pulse-notification-copy small { color: #788399; font-size: 10px; }
+.pulse-notification-unread-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: #3b82f6;
+}
+.pulse-activity-empty { margin-top: 22px; }
+@media (max-width: 600px) {
+  .pulse-activity-heading { gap: 8px; }
+  .pulse-notification-toolbar { align-items: flex-start; }
+  .pulse-notification-filters { gap: 6px; }
+  .pulse-notification-filters button { padding: 7px 10px; }
+  .pulse-notification-item { padding: 12px; }
+}

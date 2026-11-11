@@ -67,6 +67,11 @@ beforeEach(async () => {
   await env.withSecurityRulesDisabled(async (context) => {
     const firestore = context.firestore();
 
+    await firestore.doc('publicProfiles/bob').set({
+      uid: 'bob',
+      discoverable: true,
+    });
+
     await firestore.doc(`conversations/${conversationId}`).set({
       participants: ['alice', 'bob'],
       type: 'direct',
@@ -82,6 +87,107 @@ beforeEach(async () => {
 
 after(async () => {
   await env?.cleanup();
+});
+
+
+async function createFollowNotificationAsAlice(notificationId = 'follow-notification') {
+  const batch = aliceDb.batch();
+  const relationshipRef = aliceDb.doc('followRelationships/alice_bob');
+  const notificationRef = aliceDb.doc(`notifications/${notificationId}`);
+
+  batch.set(relationshipRef, {
+    followerUid: 'alice',
+    followingUid: 'bob',
+    createdAt: new Date(),
+  });
+
+  batch.set(notificationRef, {
+    recipientUid: 'bob',
+    actorUid: 'alice',
+    type: 'follow',
+    relationshipId: 'alice_bob',
+    createdAt: new Date(),
+    readAt: null,
+  });
+
+  await batch.commit();
+  return notificationRef;
+}
+
+test('a follow and matching notification can be created atomically', async () => {
+  const notificationRef = await createFollowNotificationAsAlice();
+  await assertFails(notificationRef.get());
+  await assertSucceeds(bobDb.doc(notificationRef.path).get());
+});
+
+test('a notification cannot be created without its new follow relationship', async () => {
+  const notificationRef = aliceDb.doc('notifications/notification-alone');
+
+  await assertFails(notificationRef.set({
+    recipientUid: 'bob',
+    actorUid: 'alice',
+    type: 'follow',
+    relationshipId: 'alice_bob',
+    createdAt: new Date(),
+    readAt: null,
+  }));
+});
+
+test('a notification cannot claim a different recipient from its relationship', async () => {
+  const batch = aliceDb.batch();
+
+  batch.set(aliceDb.doc('followRelationships/alice_bob'), {
+    followerUid: 'alice',
+    followingUid: 'bob',
+    createdAt: new Date(),
+  });
+
+  batch.set(aliceDb.doc('notifications/wrong-recipient'), {
+    recipientUid: 'outsider',
+    actorUid: 'alice',
+    type: 'follow',
+    relationshipId: 'alice_bob',
+    createdAt: new Date(),
+    readAt: null,
+  });
+
+  await assertFails(batch.commit());
+});
+
+test('only the notification recipient can read the notification', async () => {
+  const notificationRef = await createFollowNotificationAsAlice();
+
+  await assertSucceeds(bobDb.doc(notificationRef.path).get());
+  await assertFails(aliceDb.doc(notificationRef.path).get());
+  await assertFails(outsiderDb.doc(notificationRef.path).get());
+});
+
+test('recipient can mark their notification as read', async () => {
+  const notificationRef = await createFollowNotificationAsAlice();
+
+  await assertSucceeds(
+    bobDb.doc(notificationRef.path).update({ readAt: new Date() }),
+  );
+});
+
+test('the actor cannot mark the recipient notification as read', async () => {
+  const notificationRef = await createFollowNotificationAsAlice();
+
+  await assertFails(
+    aliceDb.doc(notificationRef.path).update({ readAt: new Date() }),
+  );
+});
+
+test('recipient cannot alter the actor or event type', async () => {
+  const notificationRef = await createFollowNotificationAsAlice();
+
+  await assertFails(
+    bobDb.doc(notificationRef.path).update({ type: 'like' }),
+  );
+
+  await assertFails(
+    bobDb.doc(notificationRef.path).update({ actorUid: 'outsider' }),
+  );
 });
 
 test('participant can create and update their own reaction', async () => {

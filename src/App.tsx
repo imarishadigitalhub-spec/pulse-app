@@ -23,6 +23,11 @@ import {
   MoreVertical,
   Copy,
   X,
+  Heart,
+  MessageSquare,
+  UserPlus,
+  AtSign,
+  CheckCheck,
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { auth } from './lib/firebase';
@@ -34,6 +39,9 @@ import {
   setDiscoverability,
   watchFollowing,
   watchFollowers,
+  watchNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
   followMember,
   unfollowMember,
   updateOwnProfile,
@@ -66,6 +74,7 @@ import {
   type PulseConversationAppearance,
   type PulseReadReceipt,
   type PulseReaction,
+  type PulseNotification,
 } from './lib/pulse-data';
 import type { PulseMessageReply } from './lib/pulse-data';
 
@@ -292,12 +301,38 @@ function formatPresenceLastSeen(timestamp: number | null, now: number): string {
   })} at ${time}`;
 }
 
+function notificationDate(value: unknown): string {
+  let date: Date | null = null;
+
+  if (value instanceof Date) {
+    date = value;
+  } else if (
+    value &&
+    typeof value === 'object' &&
+    'toDate' in value &&
+    typeof (value as { toDate?: unknown }).toDate === 'function'
+  ) {
+    date = (value as { toDate: () => Date }).toDate();
+  }
+
+  if (!date || Number.isNaN(date.getTime())) return 'Just now';
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
 function App() {
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
   const [authReady, setAuthReady] = useState(Boolean(auth?.currentUser));
   const [booting, setBooting] = useState(true);
 
   const [activeTab, setActiveTab] = useState<Tab>('Chats');
+  const [activitySection, setActivitySection] = useState<'Notifications' | 'Discover'>('Notifications');
+  const [notificationFilter, setNotificationFilter] = useState<'All' | 'Likes' | 'Comments' | 'Follows' | 'Mentions'>('All');
+  const [notifications, setNotifications] = useState<PulseNotification[]>([]);
+  const [notificationBusy, setNotificationBusy] = useState(false);
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [people, setPeople] = useState<PublicProfile[]>([]);
   const [followingUids, setFollowingUids] = useState<string[]>([]);
@@ -614,6 +649,7 @@ function App() {
       setPeople([]);
       setFollowingUids([]);
       setFollowerUids([]);
+      setNotifications([]);
       setRelationshipProfiles({});
       setConversationProfiles({});
       setConversations([]);
@@ -665,6 +701,14 @@ function App() {
             err => {
               if (active) setError('Conversation inbox: ' + err.message);
             },
+          ),
+        );
+
+        subscriptions.push(
+          watchNotifications(
+            user.uid,
+            value => { if (active) setNotifications(value); },
+            err => { if (active) setError('Notifications: ' + err.message); },
           ),
         );
 
@@ -942,6 +986,25 @@ function App() {
     [people, relationshipProfiles, conversationProfiles],
   );
 
+  const unreadNotificationCount = notifications.filter(
+    notification => notification.readAt == null,
+  ).length;
+
+  const visibleNotifications = useMemo(() => {
+    if (notificationFilter === 'All') return notifications;
+
+    const typeByFilter = {
+      Likes: 'like',
+      Comments: 'comment',
+      Follows: 'follow',
+      Mentions: 'mention',
+    } as const;
+
+    return notifications.filter(
+      notification => notification.type === typeByFilter[notificationFilter],
+    );
+  }, [notifications, notificationFilter]);
+
   const otherUid = (conversation: PulseConversation) =>
     conversation.participants.find(uid => uid !== user?.uid) ?? '';
 
@@ -1112,6 +1175,31 @@ function App() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Follow action failed.');
+    }
+  }
+
+  async function markAllActivityRead() {
+    if (!user || notificationBusy || unreadNotificationCount === 0) return;
+
+    setNotificationBusy(true);
+    setError('');
+
+    try {
+      await markAllNotificationsRead(user.uid, notifications);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Notifications could not be marked as read.');
+    } finally {
+      setNotificationBusy(false);
+    }
+  }
+
+  async function markActivityRead(notification: PulseNotification) {
+    if (!user || notification.readAt != null) return;
+
+    try {
+      await markNotificationRead(user.uid, notification.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Notification could not be marked as read.');
     }
   }
 
@@ -2832,15 +2920,152 @@ function App() {
         )}
 
         {activeTab === 'Activity' && (
-          <section className="pulse-standard-page">
-            <span className="pulse-eyebrow">WHAT IS HAPPENING</span>
-            <h1>Activity</h1>
-            <p className="pulse-lead">Important interactions and account activity.</p>
-            <div className="pulse-empty-card">
-              <Bell size={30} />
-              <h2>No activity yet</h2>
-              <p>There are no activity records for this account. Notifications will appear here once real follow, reply, mention and interaction services are implemented.</p>
+          <section className="pulse-standard-page pulse-activity-page">
+            <span className="pulse-eyebrow">YOUR PULSE</span>
+            <div className="pulse-activity-heading">
+              <div>
+                <h1>Activity</h1>
+                <p className="pulse-lead">Stay connected to what's happening.</p>
+              </div>
+              {unreadNotificationCount > 0 && (
+                <span className="pulse-activity-unread-count">
+                  {unreadNotificationCount} unread
+                </span>
+              )}
             </div>
+
+            <div className="pulse-activity-sections" role="tablist" aria-label="Activity sections">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activitySection === 'Notifications'}
+                className={activitySection === 'Notifications' ? 'active' : ''}
+                onClick={() => setActivitySection('Notifications')}
+              >
+                <Bell size={17} />
+                Notifications
+                {unreadNotificationCount > 0 && (
+                  <span>{unreadNotificationCount}</span>
+                )}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activitySection === 'Discover'}
+                className={activitySection === 'Discover' ? 'active' : ''}
+                onClick={() => setActivitySection('Discover')}
+              >
+                <Compass size={17} />
+                Discover
+              </button>
+            </div>
+
+            {activitySection === 'Notifications' ? (
+              <>
+                <div className="pulse-notification-toolbar">
+                  <div className="pulse-notification-filters" aria-label="Filter notifications">
+                    {(['All', 'Likes', 'Comments', 'Follows', 'Mentions'] as const).map(filter => (
+                      <button
+                        type="button"
+                        key={filter}
+                        className={notificationFilter === filter ? 'active' : ''}
+                        aria-pressed={notificationFilter === filter}
+                        onClick={() => setNotificationFilter(filter)}
+                      >
+                        {filter}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="pulse-mark-read"
+                    disabled={notificationBusy || unreadNotificationCount === 0}
+                    onClick={markAllActivityRead}
+                  >
+                    <CheckCheck size={15} />
+                    Mark all as read
+                  </button>
+                </div>
+
+                {visibleNotifications.length > 0 ? (
+                  <div className="pulse-notification-list">
+                    {visibleNotifications.map(notification => {
+                      const actor = peopleByUid.get(notification.actorUid);
+                      const isUnread = notification.readAt == null;
+                      const message = notification.type === 'follow'
+                        ? 'started following you'
+                        : notification.type === 'like'
+                          ? 'liked your post'
+                          : notification.type === 'comment'
+                            ? 'commented on your post'
+                            : notification.type === 'mention'
+                              ? 'mentioned you'
+                              : 'reposted your post';
+
+                      return (
+                        <article
+                          className={`pulse-notification-item${isUnread ? ' unread' : ''}`}
+                          key={notification.id}
+                        >
+                          <button
+                            type="button"
+                            className="pulse-notification-main"
+                            onClick={() => {
+                              void markActivityRead(notification);
+                              if (!actor) return;
+                              setViewedProfile(actor);
+                              setRelationshipView(null);
+                              setEditingProfile(false);
+                              setActiveTab('Profile');
+                            }}
+                          >
+                            {actor ? (
+                              <Avatar name={actor.displayName} photoURL={actor.photoURL} />
+                            ) : (
+                              <span className="pulse-notification-avatar">
+                                {notification.type === 'follow' ? <UserPlus size={19} /> : <Bell size={19} />}
+                              </span>
+                            )}
+                            <span className="pulse-notification-copy">
+                              <strong>{actor?.displayName || 'A PULSE member'}</strong>
+                              <span>{message}</span>
+                              <small>{notificationDate(notification.createdAt)}</small>
+                            </span>
+                          </button>
+                          {isUnread && <span className="pulse-notification-unread-dot" aria-label="Unread" />}
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="pulse-empty-card pulse-activity-empty">
+                    {notificationFilter === 'All' ? <Bell size={30} /> :
+                      notificationFilter === 'Likes' ? <Heart size={30} /> :
+                      notificationFilter === 'Comments' ? <MessageSquare size={30} /> :
+                      notificationFilter === 'Follows' ? <UserPlus size={30} /> :
+                      <AtSign size={30} />}
+                    <h2>
+                      {notificationFilter === 'All'
+                        ? 'You’re all caught up'
+                        : `No ${notificationFilter.toLowerCase()} yet`}
+                    </h2>
+                    <p>
+                      {notificationFilter === 'All'
+                        ? 'New follows and other genuine interactions will appear here.'
+                        : notificationFilter === 'Follows'
+                          ? 'When someone follows you, their activity will appear here.'
+                          : `${notificationFilter} notifications will appear when those real interaction features are available.`}
+                    </p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="pulse-empty-card pulse-activity-empty">
+                <Compass size={30} />
+                <h2>Discover people is next</h2>
+                <p>The member directory and people discovery experience will be implemented as the next Activity stage. No suggested accounts or popularity rankings are fabricated here.</p>
+              </div>
+            )}
           </section>
         )}
 
@@ -3112,6 +3337,10 @@ function App() {
                 setViewedProfile(null);
                 setRelationshipView(null);
                 setEditingProfile(false);
+              }
+              if (label === 'Activity') {
+                setActivitySection('Notifications');
+                setNotificationFilter('All');
               }
               setActiveTab(label);
             }}

@@ -267,6 +267,52 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    // A notification can only be created alongside its matching new follow.
+    // Recipients can read their own records and update only the read timestamp.
+    match /notifications/{notificationId} {
+      allow read: if signedIn()
+        && resource.data.recipientUid == request.auth.uid;
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll([
+          'recipientUid', 'actorUid', 'type',
+          'relationshipId', 'createdAt', 'readAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'recipientUid', 'actorUid', 'type',
+          'relationshipId', 'createdAt', 'readAt'
+        ])
+        && request.resource.data.recipientUid is string
+        && request.resource.data.recipientUid != request.auth.uid
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.type == 'follow'
+        && request.resource.data.relationshipId
+          == request.auth.uid + '_' + request.resource.data.recipientUid
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.readAt == null
+        && !exists(
+          /databases/$(database)/documents/followRelationships/$(request.resource.data.relationshipId)
+        )
+        && existsAfter(
+          /databases/$(database)/documents/followRelationships/$(request.resource.data.relationshipId)
+        )
+        && getAfter(
+          /databases/$(database)/documents/followRelationships/$(request.resource.data.relationshipId)
+        ).data.followerUid == request.auth.uid
+        && getAfter(
+          /databases/$(database)/documents/followRelationships/$(request.resource.data.relationshipId)
+        ).data.followingUid == request.resource.data.recipientUid;
+
+      allow update: if signedIn()
+        && resource.data.recipientUid == request.auth.uid
+        && resource.data.readAt == null
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['readAt'])
+        && request.resource.data.readAt is timestamp;
+
+      allow delete: if false;
+    }
+
     // A direct conversation has exactly two authenticated participants.
     match /conversations/{conversationId} {
       // A first-time direct conversation must be readable as missing

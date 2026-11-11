@@ -14,6 +14,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
@@ -48,6 +49,78 @@ export type FollowRelationship = {
   followingUid: string;
   createdAt?: unknown;
 };
+
+export type PulseNotification = {
+  id: string;
+  recipientUid: string;
+  actorUid: string;
+  type: 'follow' | 'like' | 'comment' | 'mention' | 'repost';
+  relationshipId?: string;
+  createdAt?: unknown;
+  readAt?: unknown | null;
+};
+
+export function watchNotifications(
+  uid: string,
+  callback: (notifications: PulseNotification[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const q = query(
+    collection(database(), 'notifications'),
+    where('recipientUid', '==', uid),
+    orderBy('createdAt', 'desc'),
+    limit(100),
+  );
+
+  return onSnapshot(
+    q,
+    snapshot => {
+      const notifications = snapshot.docs.map(item => ({
+        id: item.id,
+        ...item.data(),
+      })) as PulseNotification[];
+
+      callback(notifications);
+    },
+    error => onError?.(error),
+  );
+}
+
+export async function markNotificationRead(
+  uid: string,
+  notificationId: string,
+): Promise<void> {
+  if (!uid || !notificationId) {
+    throw new Error('The notification could not be identified.');
+  }
+
+  await updateDoc(
+    doc(database(), 'notifications', notificationId),
+    { readAt: serverTimestamp() },
+  );
+}
+
+export async function markAllNotificationsRead(
+  uid: string,
+  notifications: PulseNotification[],
+): Promise<void> {
+  if (!uid) throw new Error('Sign in to update notifications.');
+
+  const unread = notifications
+    .filter(item => item.recipientUid === uid && item.readAt == null)
+    .slice(0, 100);
+
+  if (unread.length === 0) return;
+
+  const batch = writeBatch(database());
+  unread.forEach(item => {
+    batch.update(doc(database(), 'notifications', item.id), {
+      readAt: serverTimestamp(),
+    });
+  });
+
+  await batch.commit();
+}
 
 export function watchFollowing(
   uid: string,
@@ -92,20 +165,42 @@ export async function followMember(
   }
 
   const dbRef = database();
-  const target = await getDoc(doc(dbRef, 'publicProfiles', targetUid));
+  const relationshipRef = doc(
+    dbRef,
+    'followRelationships',
+    `${currentUid}_${targetUid}`,
+  );
 
+  // A repeated follow is a no-op: it must not generate duplicate activity.
+  const existingRelationship = await getDoc(relationshipRef);
+  if (existingRelationship.exists()) return;
+
+  const target = await getDoc(doc(dbRef, 'publicProfiles', targetUid));
   if (!target.exists() || target.data().discoverable !== true) {
     throw new Error('This member is not currently available to follow.');
   }
 
-  await setDoc(
-    doc(dbRef, 'followRelationships', `${currentUid}_${targetUid}`),
-    {
-      followerUid: currentUid,
-      followingUid: targetUid,
-      createdAt: serverTimestamp(),
-    },
-  );
+  // The relationship and its notification are one atomic operation.
+  // Firestore rules verify that both writes belong to the same batch.
+  const batch = writeBatch(dbRef);
+  const notificationRef = doc(collection(dbRef, 'notifications'));
+
+  batch.set(relationshipRef, {
+    followerUid: currentUid,
+    followingUid: targetUid,
+    createdAt: serverTimestamp(),
+  });
+
+  batch.set(notificationRef, {
+    recipientUid: targetUid,
+    actorUid: currentUid,
+    type: 'follow',
+    relationshipId: `${currentUid}_${targetUid}`,
+    createdAt: serverTimestamp(),
+    readAt: null,
+  });
+
+  await batch.commit();
 }
 
 export async function unfollowMember(
