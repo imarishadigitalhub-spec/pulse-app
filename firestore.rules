@@ -129,7 +129,7 @@ service cloud.firestore {
         && request.resource.data.username is string
         && request.resource.data.keys().hasOnly([
           'uid', 'displayName', 'username', 'photoURL',
-          'bio', 'discoverable', 'createdAt', 'updatedAt'
+          'coverPhotoURL', 'bio', 'discoverable', 'createdAt', 'updatedAt'
         ]);
 
       allow update: if isOwner(uid)
@@ -139,7 +139,7 @@ service cloud.firestore {
         && request.resource.data.username is string
         && request.resource.data.keys().hasOnly([
           'uid', 'displayName', 'username', 'photoURL',
-          'bio', 'discoverable', 'createdAt', 'updatedAt'
+          'coverPhotoURL', 'bio', 'discoverable', 'createdAt', 'updatedAt'
         ]);
 
       allow delete: if isOwner(uid);

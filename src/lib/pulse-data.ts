@@ -31,6 +31,8 @@ export type PublicProfile = {
   displayName: string;
   username: string;
   photoURL: string | null;
+  coverPhotoURL?: string | null;
+  location?: string;
   bio: string;
   discoverable: boolean;
   createdAt?: unknown;
@@ -1081,6 +1083,49 @@ export function watchExplorePosts(
   );
 }
 
+
+/** Watches every post belonging to one member, independently of the Explore feed limit. */
+export function watchMemberPosts(
+  uid: string,
+  onPosts: (items: PulsePost[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const memberPostsQuery = query(
+    collection(database(), 'posts'),
+    where('ownerUid', '==', uid),
+  );
+
+  return onSnapshot(
+    memberPostsQuery,
+    snapshot => {
+      const items = snapshot.docs.map(item => ({
+        id: item.id,
+        ...item.data(),
+      }) as PulsePost);
+
+      const millis = (value: unknown): number => {
+        if (value instanceof Timestamp) return value.toMillis();
+        if (value instanceof Date) return value.getTime();
+        if (typeof value === 'number') return value < 1e12 ? value * 1000 : value;
+        if (typeof value === 'string') {
+          const parsed = Date.parse(value);
+          return Number.isNaN(parsed) ? 0 : parsed;
+        }
+        if (value && typeof value === 'object') {
+          const candidate = value as { toMillis?: () => number; toDate?: () => Date };
+          if (typeof candidate.toMillis === 'function') return candidate.toMillis();
+          if (typeof candidate.toDate === 'function') return candidate.toDate().getTime();
+        }
+        return 0;
+      };
+
+      items.sort((a, b) => millis(b.createdAt) - millis(a.createdAt));
+      onPosts(items);
+    },
+    error => onError?.(error),
+  );
+}
+
 /**
  * Upload or replace the signed-in member's profile photo.
  * The returned URL is saved in the public profile and private user record.
@@ -1163,3 +1208,72 @@ export async function removeProfilePhoto(uid: string): Promise<void> {
   );
 }
 
+/**
+ * Upload or replace the signed-in member's independent profile cover.
+ * The cover URL is public profile presentation data, not private account data.
+ */
+export async function uploadProfileCover(
+  uid: string,
+  file: File,
+  onProgress?: (percentage: number) => void,
+): Promise<string> {
+  if (!uid) throw new Error('Sign in before uploading a profile cover.');
+  if (!storage) throw new Error('Firebase Storage is not configured.');
+
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    throw new Error('Choose a JPG, PNG or WebP cover image.');
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error('Profile covers must be 10 MB or smaller.');
+  }
+
+  const coverRef = ref(storage, `profileCovers/${uid}/cover`);
+  const task = uploadBytesResumable(coverRef, file, {
+    contentType: file.type,
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    task.on(
+      'state_changed',
+      snapshot => {
+        const percentage = snapshot.totalBytes
+          ? Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100)
+          : 0;
+        onProgress?.(percentage);
+      },
+      reject,
+      resolve,
+    );
+  });
+
+  const coverPhotoURL = await getDownloadURL(task.snapshot.ref);
+
+  await updateDoc(doc(database(), 'publicProfiles', uid), {
+    coverPhotoURL,
+    updatedAt: serverTimestamp(),
+  });
+
+  return coverPhotoURL;
+}
+
+/** Remove the signed-in member's profile cover. */
+export async function removeProfileCover(uid: string): Promise<void> {
+  if (!uid) throw new Error('Sign in before changing your profile cover.');
+  if (!storage) throw new Error('Firebase Storage is not configured.');
+
+  const coverRef = ref(storage, `profileCovers/${uid}/cover`);
+
+  try {
+    await deleteObject(coverRef);
+  } catch (error) {
+    if ((error as { code?: string })?.code !== 'storage/object-not-found') {
+      throw error;
+    }
+  }
+
+  await updateDoc(doc(database(), 'publicProfiles', uid), {
+    coverPhotoURL: null,
+    updatedAt: serverTimestamp(),
+  });
+}

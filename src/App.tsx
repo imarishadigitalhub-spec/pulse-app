@@ -2,12 +2,14 @@ import type { CSSProperties } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
+  ArrowUpRight,
   PlusSquare,
   Pin,
   Plus,
   Compass,
   Camera,
   ChevronDown,
+  ChevronRight,
   Settings,
   Trash2,
   LogOut,
@@ -26,6 +28,7 @@ import {
   Heart,
   MessageSquare,
   UserPlus,
+  UsersRound,
   AtSign,
   CheckCheck,
 } from 'lucide-react';
@@ -36,6 +39,9 @@ import {
   publishUserProfile,
   uploadProfilePhoto,
   removeProfilePhoto,
+  uploadProfileCover,
+  removeProfileCover,
+  watchMemberPosts,
   setDiscoverability,
   watchFollowing,
   watchFollowers,
@@ -330,6 +336,55 @@ function App() {
 
   const [activeTab, setActiveTab] = useState<Tab>('Chats');
   const [activitySection, setActivitySection] = useState<'Notifications' | 'Discover'>('Notifications');
+  const [discoverSearch, setDiscoverSearch] = useState('');
+  const [discoverShowAll, setDiscoverShowAll] = useState(false);
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationPermission | 'unsupported'>(() =>
+      typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
+    );
+  const [notificationReminderDismissed, setNotificationReminderDismissed] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === 'Activity') {
+      setNotificationReminderDismissed(false);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let permissionStatus: PermissionStatus | null = null;
+
+    const syncNotificationPermission = () => {
+      setNotificationPermission(
+        typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
+      );
+    };
+
+    syncNotificationPermission();
+    window.addEventListener('focus', syncNotificationPermission);
+    document.addEventListener('visibilitychange', syncNotificationPermission);
+
+    if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+      navigator.permissions
+        .query({ name: 'notifications' as PermissionName })
+        .then(status => {
+          if (cancelled) return;
+          permissionStatus = status;
+          permissionStatus.addEventListener('change', syncNotificationPermission);
+          syncNotificationPermission();
+        })
+        .catch(() => {
+          // Focus and visibility events remain as the cross-browser fallback.
+        });
+    }
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', syncNotificationPermission);
+      document.removeEventListener('visibilitychange', syncNotificationPermission);
+      permissionStatus?.removeEventListener('change', syncNotificationPermission);
+    };
+  }, []);
   const [notificationFilter, setNotificationFilter] = useState<'All' | 'Likes' | 'Comments' | 'Follows' | 'Mentions'>('All');
   const [notifications, setNotifications] = useState<PulseNotification[]>([]);
   const [notificationBusy, setNotificationBusy] = useState(false);
@@ -346,6 +401,12 @@ function App() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profilePhotoBusy, setProfilePhotoBusy] = useState(false);
   const [profilePhotoProgress, setProfilePhotoProgress] = useState(0);
+  const [profileCoverBusy, setProfileCoverBusy] = useState(false);
+  const [profileCoverProgress, setProfileCoverProgress] = useState(0);
+  const [viewedFollowingUids, setViewedFollowingUids] = useState<string[]>([]);
+  const [viewedFollowerUids, setViewedFollowerUids] = useState<string[]>([]);
+  const [profileTimelinePosts, setProfileTimelinePosts] = useState<PulsePost[]>([]);
+  const [profileContentTab, setProfileContentTab] = useState<'Posts' | 'Videos' | 'Photos'>('Posts');
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [conversationProfiles, setConversationProfiles] = useState<Record<string, PublicProfile>>({});
   const [conversations, setConversations] = useState<PulseConversation[]>([]);
@@ -379,6 +440,15 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const conversationHistoryRef = useRef<string | null>(null);
   const handlingPopStateRef = useRef(false);
+  const profileReturnRef = useRef<{
+    activeTab: Tab;
+    activitySection: 'Notifications' | 'Discover';
+    discoverShowAll: boolean;
+    discoverSearch: string;
+    notificationFilter: 'All' | 'Likes' | 'Comments' | 'Follows' | 'Mentions';
+  } | null>(null);
+  const profileTargetRef = useRef<PublicProfile | null>(null);
+  const followBusyRef = useRef<Set<string>>(new Set());
 
   const [viewedProfile, setViewedProfile] = useState<PublicProfile | null>(null);
   const [messageText, setMessageText] = useState('');
@@ -604,6 +674,48 @@ function App() {
         return;
       }
 
+      const nextHistoryState =
+        event.state && typeof event.state === 'object' ? event.state : {};
+
+      // Browser Forward restores a member profile.
+      if (!selectedId && nextHistoryState.pulseProfile
+          && profileTargetRef.current && profileReturnRef.current) {
+        setViewedProfile(profileTargetRef.current);
+        setRelationshipView(null);
+        setEditingProfile(false);
+        setActiveTab('Profile');
+        return;
+      }
+
+      // Browser Forward restores the full Discover directory.
+      if (!selectedId && nextHistoryState.pulseDiscoverDirectory
+          && activeTab === 'Activity' && activitySection === 'Discover') {
+        setDiscoverShowAll(true);
+        return;
+      }
+
+      // Back from a member profile restores its originating tab and filters.
+      if (!selectedId && activeTab === 'Profile' && viewedProfile
+          && profileReturnRef.current) {
+        const origin = profileReturnRef.current;
+        setViewedProfile(null);
+        setRelationshipView(null);
+        setEditingProfile(false);
+        setActiveTab(origin.activeTab);
+        setActivitySection(origin.activitySection);
+        setDiscoverShowAll(origin.discoverShowAll);
+        setDiscoverSearch(origin.discoverSearch);
+        setNotificationFilter(origin.notificationFilter);
+        return;
+      }
+
+      // Back from the directory returns to Discover home.
+      if (!selectedId && activeTab === 'Activity'
+          && activitySection === 'Discover' && discoverShowAll) {
+        setDiscoverShowAll(false);
+        return;
+      }
+
       // Close transient account UI before allowing the browser to leave PULSE.
       if (accountMenuOpen) setAccountMenuOpen(false);
       if (showNewChat) setShowNewChat(false);
@@ -612,7 +724,17 @@ function App() {
 
     window.addEventListener('popstate', handleBrowserBack);
     return () => window.removeEventListener('popstate', handleBrowserBack);
-  }, [selectedId, activeTab, viewedProfile, appearanceOpen, accountMenuOpen, showNewChat, profileSettingsOpen]);
+  }, [
+    selectedId,
+    activeTab,
+    viewedProfile,
+    activitySection,
+    discoverShowAll,
+    appearanceOpen,
+    accountMenuOpen,
+    showNewChat,
+    profileSettingsOpen,
+  ]);
 
   useEffect(() => {
     if (!auth) {
@@ -975,6 +1097,62 @@ function App() {
     };
   }, [user, followingUids, followerUids]);
 
+  useEffect(() => {
+    if (!user) {
+      setProfileTimelinePosts([]);
+      return;
+    }
+
+    const targetUid = viewedProfile?.uid ?? user.uid;
+    let active = true;
+
+    const unsubscribe = watchMemberPosts(
+      targetUid,
+      items => {
+        if (active) setProfileTimelinePosts(items);
+      },
+      error => {
+        if (active) setError('Profile posts: ' + error.message);
+      },
+    );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [user, viewedProfile?.uid]);
+
+  useEffect(() => {
+    if (!viewedProfile || viewedProfile.uid === user?.uid) {
+      setViewedFollowingUids([]);
+      setViewedFollowerUids([]);
+      return;
+    }
+
+    let active = true;
+    const unsubscribeFollowing = watchFollowing(
+      viewedProfile.uid,
+      items => { if (active) setViewedFollowingUids(items); },
+      error => { if (active) setError('Profile following: ' + error.message); },
+    );
+    const unsubscribeFollowers = watchFollowers(
+      viewedProfile.uid,
+      items => { if (active) setViewedFollowerUids(items); },
+      error => { if (active) setError('Profile followers: ' + error.message); },
+    );
+
+    return () => {
+      active = false;
+      unsubscribeFollowing();
+      unsubscribeFollowers();
+    };
+  }, [viewedProfile?.uid, user?.uid]);
+
+  useEffect(() => {
+    setProfileContentTab('Posts');
+    setRelationshipView(null);
+  }, [viewedProfile?.uid]);
+
   const peopleByUid = useMemo(
     () => new Map([
       ...people.map(person => [person.uid, person] as const),
@@ -985,6 +1163,49 @@ function App() {
     ]),
     [people, relationshipProfiles, conversationProfiles],
   );
+
+  const peopleYouMayKnow = useMemo(() => {
+    const alreadyFollowing = new Set(followingUids);
+
+    return [...new Set(followerUids)]
+      .filter(uid => uid !== user?.uid && !alreadyFollowing.has(uid))
+      .map(uid => peopleByUid.get(uid))
+      .filter(
+        (person): person is PublicProfile =>
+          Boolean(person && person.discoverable === true),
+      );
+  }, [peopleByUid, followerUids, followingUids, user?.uid]);
+
+  const newOnPulse = useMemo(() => {
+    const suggestedUids = new Set(peopleYouMayKnow.map(person => person.uid));
+
+    const createdAtMillis = (value: unknown): number => {
+      if (value instanceof Date) return value.getTime();
+      if (typeof value === 'number') return value;
+      if (typeof value === 'string') {
+        const parsed = Date.parse(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+      if (value && typeof value === 'object') {
+        const timestamp = value as {
+          toMillis?: () => number;
+          seconds?: number;
+        };
+        if (typeof timestamp.toMillis === 'function') {
+          return timestamp.toMillis();
+        }
+        if (typeof timestamp.seconds === 'number') {
+          return timestamp.seconds * 1000;
+        }
+      }
+      return 0;
+    };
+
+    return people
+      .filter(person => !suggestedUids.has(person.uid))
+      .slice()
+      .sort((a, b) => createdAtMillis(b.createdAt) - createdAtMillis(a.createdAt));
+  }, [people, peopleYouMayKnow]);
 
   const unreadNotificationCount = notifications.filter(
     notification => notification.readAt == null,
@@ -1083,9 +1304,42 @@ function App() {
   );
 
   const profilePosts = useMemo(
-    () => activePosts.filter(post => post.ownerUid === (viewedProfile?.uid ?? user?.uid)),
-    [activePosts, viewedProfile, user?.uid],
+    () => profileTimelinePosts.filter(post => {
+      if (post.ownerUid !== (viewedProfile?.uid ?? user?.uid)) return false;
+      if (!post.expiresAt) return true;
+
+      const expiryValue = post.expiresAt as {
+        toDate?: () => Date;
+        toMillis?: () => number;
+      };
+
+      if (typeof expiryValue.toMillis === 'function') {
+        return expiryValue.toMillis() > Date.now();
+      }
+      if (typeof expiryValue.toDate === 'function') {
+        return expiryValue.toDate().getTime() > Date.now();
+      }
+      return true;
+    }),
+    [profileTimelinePosts, viewedProfile?.uid, user?.uid],
   );
+
+  const visibleProfilePosts = useMemo(
+    () => profileContentTab === 'Videos'
+      ? profilePosts.filter(post => post.postType === 'video')
+      : profileContentTab === 'Photos'
+        ? profilePosts.filter(post => post.postType === 'image')
+        : profilePosts,
+    [profilePosts, profileContentTab],
+  );
+
+  const displayedFollowerUids = viewedProfile
+    ? viewedFollowerUids
+    : followerUids;
+
+  const displayedFollowingUids = viewedProfile
+    ? viewedFollowingUids
+    : followingUids;
 
   const selectedConversation = conversations.find(
     conversation => conversation.id === selectedId,
@@ -1164,8 +1418,24 @@ function App() {
     }
   }
 
+  async function enableBrowserNotifications() {
+    if (typeof Notification === 'undefined') {
+      setNotificationPermission('unsupported');
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not request notification permission.');
+    }
+  }
+
   async function toggleFollow(person: PublicProfile) {
-    if (!user) return;
+    if (!user || followBusyRef.current.has(person.uid)) return;
+
+    followBusyRef.current.add(person.uid);
     setError('');
     try {
       if (followingUids.includes(person.uid)) {
@@ -1175,7 +1445,52 @@ function App() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Follow action failed.');
+    } finally {
+      followBusyRef.current.delete(person.uid);
     }
+  }
+
+  function openMemberProfile(person: PublicProfile) {
+    profileReturnRef.current = {
+      activeTab,
+      activitySection,
+      discoverShowAll,
+      discoverSearch,
+      notificationFilter,
+    };
+    profileTargetRef.current = person;
+
+    window.history.pushState(
+      {
+        ...(window.history.state && typeof window.history.state === 'object'
+          ? window.history.state
+          : {}),
+        pulseProfile: true,
+      },
+      '',
+      window.location.href,
+    );
+
+    setViewedProfile(person);
+    setRelationshipView(null);
+    setEditingProfile(false);
+    setActiveTab('Profile');
+  }
+
+  function openDiscoverDirectory() {
+    window.history.pushState(
+      {
+        ...(window.history.state && typeof window.history.state === 'object'
+          ? window.history.state
+          : {}),
+        pulseDiscoverDirectory: true,
+      },
+      '',
+      window.location.href,
+    );
+
+    setDiscoverSearch('');
+    setDiscoverShowAll(true);
   }
 
   async function markAllActivityRead() {
@@ -1366,6 +1681,37 @@ function App() {
     }
   }
 
+  async function changeProfileCover(file: File | undefined) {
+    if (!user || !file || profileCoverBusy) return;
+
+    setProfileCoverBusy(true);
+    setProfileCoverProgress(0);
+    setError('');
+
+    try {
+      await uploadProfileCover(user.uid, file, setProfileCoverProgress);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Cover photo upload failed.');
+    } finally {
+      setProfileCoverBusy(false);
+    }
+  }
+
+  async function clearProfileCover() {
+    if (!user || profileCoverBusy || !profile?.coverPhotoURL) return;
+
+    setProfileCoverBusy(true);
+    setError('');
+
+    try {
+      await removeProfileCover(user.uid);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Cover photo could not be removed.');
+    } finally {
+      setProfileCoverBusy(false);
+    }
+  }
+
   async function toggleDiscoverability() {
     if (!user || !profile || privacyBusy) return;
 
@@ -1428,7 +1774,7 @@ function App() {
 
   return (
     <div className="pulse-live-app">
-      {!(activeTab === 'Chats' && selectedId) && (
+      {activeTab === 'Chats' && !selectedId && (
       <header className="pulse-topbar">
         <button
           type="button"
@@ -1501,7 +1847,7 @@ function App() {
       </header>
       )}
 
-      <main className={`pulse-content ${activeTab === 'Chats' ? 'pulse-content-chats' : ''} ${activeTab === 'Chats' && selectedId ? 'pulse-conversation-active' : ''}`}>
+      <main className={`pulse-content ${activeTab === 'Chats' ? 'pulse-content-chats' : ''} ${activeTab === 'Chats' && selectedId ? 'pulse-conversation-active' : ''} ${activeTab === 'Activity' ? 'pulse-content-activity' : ''}`}>
 
         {error && (
           <div className="pulse-error" role="alert">
@@ -2879,11 +3225,7 @@ function App() {
                         ? profile
                         : people.find(person => person.uid === post.ownerUid);
                       if (author) {
-                        setViewedProfile(author);
-
-                        setRelationshipView(null);
-                        setEditingProfile(false);
-                        setActiveTab('Profile');
+                        openMemberProfile(author);
                       }
                     }}
                   >
@@ -2921,11 +3263,11 @@ function App() {
 
         {activeTab === 'Activity' && (
           <section className="pulse-standard-page pulse-activity-page">
-            <span className="pulse-eyebrow">YOUR PULSE</span>
+            <span className="pulse-eyebrow">YOUR PULSE COMMUNITY</span>
             <div className="pulse-activity-heading">
               <div>
-                <h1>Activity</h1>
-                <p className="pulse-lead">Stay connected to what's happening.</p>
+                <h1>What’s happening</h1>
+                <p className="pulse-lead">Catch up with your people, discover new connections and see what’s happening across PULSE.</p>
               </div>
               {unreadNotificationCount > 0 && (
                 <span className="pulse-activity-unread-count">
@@ -2933,6 +3275,39 @@ function App() {
                 </span>
               )}
             </div>
+
+            {notificationPermission !== 'granted' &&
+              notificationPermission !== 'unsupported' &&
+              !notificationReminderDismissed && (
+                <div className="pulse-notification-permission" role="status">
+                  <div className="pulse-notification-permission-copy">
+                    <strong>Stay in the loop</strong>
+                    <p>
+                      {notificationPermission === 'denied'
+                        ? 'Notifications are blocked for PULSE. Change this site’s notification permission in your browser settings, then return here.'
+                        : 'Get browser alerts for activity on PULSE. You can change this permission later in your browser settings.'}
+                    </p>
+                  </div>
+                  <div className="pulse-notification-permission-actions">
+                    {notificationPermission === 'default' && (
+                      <button
+                        type="button"
+                        className="pulse-profile-action primary"
+                        onClick={() => void enableBrowserNotifications()}
+                      >
+                        <Bell size={15} /> Enable notifications
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="pulse-notification-dismiss"
+                      onClick={() => setNotificationReminderDismissed(true)}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
 
             <div className="pulse-activity-sections" role="tablist" aria-label="Activity sections">
               <button
@@ -2955,7 +3330,7 @@ function App() {
                 className={activitySection === 'Discover' ? 'active' : ''}
                 onClick={() => setActivitySection('Discover')}
               >
-                <Compass size={17} />
+                <UsersRound size={17} />
                 Discover
               </button>
             </div>
@@ -3013,10 +3388,7 @@ function App() {
                             onClick={() => {
                               void markActivityRead(notification);
                               if (!actor) return;
-                              setViewedProfile(actor);
-                              setRelationshipView(null);
-                              setEditingProfile(false);
-                              setActiveTab('Profile');
+                              openMemberProfile(actor);
                             }}
                           >
                             {actor ? (
@@ -3060,10 +3432,208 @@ function App() {
                 )}
               </>
             ) : (
-              <div className="pulse-empty-card pulse-activity-empty">
-                <Compass size={30} />
-                <h2>Discover people is next</h2>
-                <p>The member directory and people discovery experience will be implemented as the next Activity stage. No suggested accounts or popularity rankings are fabricated here.</p>
+              <div className="pulse-discover-panel">
+                {discoverShowAll ? (
+                  <>
+                    <div className="pulse-discover-intro">
+                      <div>
+                        <h2>Explore people</h2>
+                        <p>Find members and choose who you'd like to connect with.</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="pulse-discover-text-action"
+                        onClick={() => window.history.back()}
+                      >
+                        Back to Discover
+                      </button>
+                    </div>
+
+                    <label className="pulse-discover-search">
+                      <Search size={17} />
+                      <input
+                        type="search"
+                        value={discoverSearch}
+                        onChange={event => setDiscoverSearch(event.target.value)}
+                        placeholder="Search by name or username"
+                        aria-label="Search PULSE members"
+                      />
+                      {discoverSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setDiscoverSearch('')}
+                          aria-label="Clear search"
+                        >
+                          <X size={16} />
+                        </button>
+                      )}
+                    </label>
+
+                    {(() => {
+                      const term = discoverSearch.trim().toLowerCase();
+                      const members = people.filter(person =>
+                        !term ||
+                        person.displayName.toLowerCase().includes(term) ||
+                        person.username.toLowerCase().includes(term)
+                      );
+
+                      return members.length > 0 ? (
+                        <div className="pulse-discover-directory">
+                          {members.map(person => {
+                            const isFollowing = followingUids.includes(person.uid);
+                            const followsYou = followerUids.includes(person.uid);
+
+                            return (
+                              <article className="pulse-discover-directory-item" key={person.uid}>
+                                <button
+                                  type="button"
+                                  className="pulse-discover-person"
+                                  onClick={() => {
+                                    openMemberProfile(person);
+                                  }}
+                                >
+                                  <Avatar name={person.displayName} photoURL={person.photoURL} />
+                                  <span className="pulse-discover-person-copy">
+                                    <strong>{person.displayName}</strong>
+                                    <span>@{person.username}</span>
+                                    {followsYou && <small>Follows you</small>}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`pulse-profile-action${isFollowing ? '' : ' primary'}`}
+                                  onClick={() => void toggleFollow(person)}
+                                >
+                                  {isFollowing ? 'Following' : followsYou ? 'Follow back' : 'Follow'}
+                                </button>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="pulse-discover-section-empty">
+                          {term
+                            ? 'No members match that search. Try another name or username.'
+                            : 'No discoverable members are available yet.'}
+                        </div>
+                      );
+                    })()}
+                  </>
+                ) : (
+                  <>
+                    <div className="pulse-discover-intro">
+                      <div>
+                        <h2>Discover</h2>
+                        <p>Find people to connect with across your PULSE community.</p>
+                      </div>
+                      <span>{people.length} members</span>
+                    </div>
+
+                    <section className="pulse-discover-feature">
+                      <div className="pulse-discover-feature-heading">
+                        <div>
+                          <span className="pulse-discover-kicker">BUILD CONNECTIONS</span>
+                          <h3>People you may know</h3>
+                          <p>Members who already follow you.</p>
+                        </div>
+                        <span className="pulse-discover-count">{peopleYouMayKnow.length}</span>
+                      </div>
+
+                      {peopleYouMayKnow.length > 0 ? (
+                        <div className="pulse-discover-people-row">
+                          {peopleYouMayKnow.slice(0, 8).map(person => (
+                            <article className="pulse-discover-person-tile" key={person.uid}>
+                              <button
+                                type="button"
+                                className="pulse-discover-person-tile-profile"
+                                onClick={() => {
+                                  openMemberProfile(person);
+                                }}
+                              >
+                                <Avatar name={person.displayName} photoURL={person.photoURL} />
+                                <strong>{person.displayName}</strong>
+                                <span>@{person.username}</span>
+                                <small>Follows you</small>
+                              </button>
+                              <button
+                                type="button"
+                                className={`pulse-profile-action${followingUids.includes(person.uid) ? '' : ' primary'}`}
+                                onClick={() => void toggleFollow(person)}
+                              >
+                                {followingUids.includes(person.uid) ? 'Following' : 'Follow back'}
+                              </button>
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="pulse-discover-section-empty">
+                          No new follow-back suggestions right now. New connections will appear here.
+                        </div>
+                      )}
+                    </section>
+
+                    <section className="pulse-discover-feature pulse-discover-new">
+                      <div className="pulse-discover-feature-heading">
+                        <div>
+                          <span className="pulse-discover-kicker">FRESH CONNECTIONS</span>
+                          <h3>New on PULSE</h3>
+                          <p>Recently joined discoverable members.</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="pulse-discover-text-action"
+                          onClick={() => {
+                            openDiscoverDirectory();
+                          }}
+                        >
+                          See all <ArrowUpRight size={15} />
+                        </button>
+                      </div>
+
+                      {newOnPulse.length > 0 ? (
+                        <div className="pulse-discover-new-preview">
+                          {newOnPulse.slice(0, 3).map(person => (
+                            <button
+                              type="button"
+                              className="pulse-discover-new-person"
+                              key={person.uid}
+                              onClick={() => {
+                                openMemberProfile(person);
+                              }}
+                            >
+                              <Avatar name={person.displayName} photoURL={person.photoURL} small />
+                              <span>
+                                <strong>{person.displayName}</strong>
+                                <small>@{person.username}</small>
+                              </span>
+                              <ChevronRight size={17} />
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="pulse-discover-section-empty">
+                          New member profiles will appear here when people join PULSE.
+                        </div>
+                      )}
+                    </section>
+
+                    <div className="pulse-discover-directory-link">
+                      <div>
+                        <strong>Looking for someone?</strong>
+                        <p>Search the discoverable PULSE community.</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="pulse-profile-action primary"
+                        onClick={() => {
+                          openDiscoverDirectory();
+                        }}
+                      >
+                        Explore people <ArrowUpRight size={15} />
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </section>
@@ -3073,7 +3643,14 @@ function App() {
           <section className="pulse-standard-page pulse-social-profile-page">
             {viewedProfile && viewedProfile.uid !== user.uid ? (
               <>
-                <div className="pulse-social-cover" aria-hidden="true" />
+                <div className="pulse-social-cover">
+                  {viewedProfile.coverPhotoURL ? (
+                    <img src={viewedProfile.coverPhotoURL} alt={`${viewedProfile.displayName}'s cover`} />
+                  ) : (
+                    <div className="pulse-social-cover-placeholder" aria-hidden="true" />
+                  )}
+                </div>
+
                 <div className="pulse-social-profile-heading">
                   <Avatar
                     name={viewedProfile.displayName}
@@ -3081,7 +3658,31 @@ function App() {
                   />
                   <h1>{viewedProfile.displayName}</h1>
                   <span>@{viewedProfile.username}</span>
-                  <p>{viewedProfile.bio || 'This member has not added a bio yet.'}</p>
+                  {viewedProfile.bio && <p>{viewedProfile.bio}</p>}
+                  {viewedProfile.location && (
+                    <span className="pulse-profile-location">{viewedProfile.location}</span>
+                  )}
+                  {timestampMillis((viewedProfile as PublicProfile & { createdAt?: unknown }).createdAt) > 0 && (
+                    <span className="pulse-profile-joined">
+                      Joined {new Date(timestampMillis((viewedProfile as PublicProfile & { createdAt?: unknown }).createdAt)).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+                    </span>
+                  )}
+
+                  <div className="pulse-social-stats pulse-social-stats-three pulse-public-profile-stats">
+                    <div>
+                      <strong>{profilePosts.length}</strong>
+                      <span>Posts</span>
+                    </div>
+                    <div>
+                      <strong>{displayedFollowerUids.length}</strong>
+                      <span>Followers</span>
+                    </div>
+                    <div>
+                      <strong>{displayedFollowingUids.length}</strong>
+                      <span>Following</span>
+                    </div>
+                  </div>
+
                   <div className="pulse-public-profile-actions">
                     <button
                       className={`pulse-profile-action ${followingUids.includes(viewedProfile.uid) ? '' : 'primary'}`}
@@ -3098,12 +3699,30 @@ function App() {
                   </div>
                 </div>
 
-                <div className="pulse-profile-post-heading">
-                  <strong>Posts</strong>
-                  <span>{profilePosts.length}</span>
+                <div className="pulse-profile-content-tabs" role="tablist" aria-label="Profile content">
+                  {(['Posts', 'Videos', 'Photos'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={profileContentTab === tab}
+                      className={profileContentTab === tab ? 'active' : ''}
+                      onClick={() => setProfileContentTab(tab)}
+                    >
+                      {tab}
+                      <span>
+                        {tab === 'Posts'
+                          ? profilePosts.length
+                          : profilePosts.filter(post => tab === 'Videos'
+                            ? post.postType === 'video'
+                            : post.postType === 'image').length}
+                      </span>
+                    </button>
+                  ))}
                 </div>
+
                 <div className="pulse-profile-post-grid">
-                  {profilePosts.map(post => (
+                  {visibleProfilePosts.map(post => (
                     <article className="pulse-profile-post-tile" key={post.id}>
                       {post.postType === 'image' && post.mediaURL ? (
                         <img src={post.mediaURL} alt="Profile post" loading="lazy" />
@@ -3114,9 +3733,11 @@ function App() {
                       )}
                     </article>
                   ))}
-                  {profilePosts.length === 0 && (
+                  {visibleProfilePosts.length === 0 && (
                     <div className="pulse-profile-no-posts">
-                      This member has not published any posts yet.
+                      {profileContentTab === 'Posts'
+                        ? 'This member has not published any posts yet.'
+                        : `No ${profileContentTab.toLowerCase()} have been shared yet.`}
                     </div>
                   )}
                 </div>
@@ -3126,12 +3747,55 @@ function App() {
               </>
             ) : (
               <>
-                <div className="pulse-social-cover" aria-hidden="true" />
+                <div className="pulse-social-cover">
+                  {profile?.coverPhotoURL ? (
+                    <img src={profile.coverPhotoURL} alt="Your profile cover" />
+                  ) : (
+                    <div className="pulse-social-cover-placeholder" aria-hidden="true" />
+                  )}
+                  <div className="pulse-cover-controls">
+                    <label className="pulse-photo-upload">
+                      <Camera size={15} />
+                      {profileCoverBusy
+                        ? `Uploading ${profileCoverProgress}%`
+                        : 'Change cover'}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={profileCoverBusy}
+                        onChange={event => {
+                          const file = event.currentTarget.files?.[0];
+                          void changeProfileCover(file);
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                    {profile?.coverPhotoURL && (
+                      <button
+                        type="button"
+                        className="pulse-photo-remove"
+                        onClick={() => void clearProfileCover()}
+                        disabled={profileCoverBusy}
+                      >
+                        <Trash2 size={14} /> Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 <div className="pulse-social-profile-heading">
                   <Avatar name={displayName} photoURL={profile?.photoURL} />
                   <h1>{displayName}</h1>
                   <span>@{profile?.username ?? user.uid.slice(0, 10)}</span>
-                  <p>{profile?.bio || 'Your PULSE profile.'}</p>
+                  {profile?.bio && <p>{profile.bio}</p>}
+                  {profile?.location && (
+                    <span className="pulse-profile-location">{profile.location}</span>
+                  )}
+                  {timestampMillis((profile as (PublicProfile & { createdAt?: unknown }) | null)?.createdAt) > 0 && (
+                    <span className="pulse-profile-joined">
+                      Joined {new Date(timestampMillis((profile as (PublicProfile & { createdAt?: unknown }) | null)?.createdAt)).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+                    </span>
+                  )}
                   <div className="pulse-profile-photo-controls">
                     <label className="pulse-photo-upload">
                       <Camera size={16} />
@@ -3168,11 +3832,11 @@ function App() {
                     <span>Posts</span>
                   </div>
                   <button onClick={() => setRelationshipView(relationshipView === 'followers' ? null : 'followers')}>
-                    <strong>{followerUids.length}</strong>
+                    <strong>{displayedFollowerUids.length}</strong>
                     <span>Followers</span>
                   </button>
                   <button onClick={() => setRelationshipView(relationshipView === 'following' ? null : 'following')}>
-                    <strong>{followingUids.length}</strong>
+                    <strong>{displayedFollowingUids.length}</strong>
                     <span>Following</span>
                   </button>
                 </div>
@@ -3180,7 +3844,7 @@ function App() {
                 {relationshipView && (
                   <div className="pulse-settings-card">
                     <h3>{relationshipView === 'followers' ? 'Your followers' : 'People you follow'}</h3>
-                    {(relationshipView === 'followers' ? followerUids : followingUids).map(uid => {
+                    {(relationshipView === 'followers' ? displayedFollowerUids : displayedFollowingUids).map(uid => {
                       const person = relationshipProfiles[uid];
                       return (
                         <div className="pulse-relationship-row" key={uid}>
@@ -3201,18 +3865,36 @@ function App() {
                         </div>
                       );
                     })}
-                    {(relationshipView === 'followers' ? followerUids : followingUids).length === 0 && (
+                    {(relationshipView === 'followers' ? displayedFollowerUids : displayedFollowingUids).length === 0 && (
                       <p>No {relationshipView} yet.</p>
                     )}
                   </div>
                 )}
 
-                <div className="pulse-profile-post-heading">
-                  <strong>Your posts</strong>
-                  <span>{profilePosts.length}</span>
+                <div className="pulse-profile-content-tabs" role="tablist" aria-label="Your profile content">
+                  {(['Posts', 'Videos', 'Photos'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={profileContentTab === tab}
+                      className={profileContentTab === tab ? 'active' : ''}
+                      onClick={() => setProfileContentTab(tab)}
+                    >
+                      {tab}
+                      <span>
+                        {tab === 'Posts'
+                          ? profilePosts.length
+                          : profilePosts.filter(post => tab === 'Videos'
+                            ? post.postType === 'video'
+                            : post.postType === 'image').length}
+                      </span>
+                    </button>
+                  ))}
                 </div>
+
                 <div className="pulse-profile-post-grid">
-                  {profilePosts.map(post => (
+                  {visibleProfilePosts.map(post => (
                     <article className="pulse-profile-post-tile" key={post.id}>
                       {post.postType === 'image' && post.mediaURL ? (
                         <img src={post.mediaURL} alt="Your post" loading="lazy" />
@@ -3223,9 +3905,11 @@ function App() {
                       )}
                     </article>
                   ))}
-                  {profilePosts.length === 0 && (
+                  {visibleProfilePosts.length === 0 && (
                     <div className="pulse-profile-no-posts">
-                      Your published posts will appear here.
+                      {profileContentTab === 'Posts'
+                        ? 'Your published posts will appear here.'
+                        : `You have not shared any ${profileContentTab.toLowerCase()} yet.`}
                     </div>
                   )}
                 </div>
