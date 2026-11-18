@@ -31,6 +31,7 @@ import {
   UsersRound,
   AtSign,
   CheckCheck,
+  RefreshCw,
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { auth } from './lib/firebase';
@@ -81,6 +82,8 @@ import {
   type PulseReadReceipt,
   type PulseReaction,
   type PulseNotification,
+  watchDiscoverDismissals,
+  dismissDiscoverMember,
 } from './lib/pulse-data';
 import type { PulseMessageReply } from './lib/pulse-data';
 
@@ -338,6 +341,8 @@ function App() {
   const [activitySection, setActivitySection] = useState<'Notifications' | 'Discover'>('Notifications');
   const [discoverSearch, setDiscoverSearch] = useState('');
   const [discoverShowAll, setDiscoverShowAll] = useState(false);
+  const [notificationSearch, setNotificationSearch] = useState('');
+  const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermission | 'unsupported'>(() =>
       typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
@@ -390,6 +395,8 @@ function App() {
   const [notificationBusy, setNotificationBusy] = useState(false);
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [people, setPeople] = useState<PublicProfile[]>([]);
+  const [dismissedDiscoverUids, setDismissedDiscoverUids] = useState<string[]>([]);
+  const [discoverRefreshIndex, setDiscoverRefreshIndex] = useState(0);
   const [followingUids, setFollowingUids] = useState<string[]>([]);
   const [followerUids, setFollowerUids] = useState<string[]>([]);
   const [relationshipProfiles, setRelationshipProfiles] = useState<Record<string, PublicProfile>>({});
@@ -403,8 +410,6 @@ function App() {
   const [profilePhotoProgress, setProfilePhotoProgress] = useState(0);
   const [profileCoverBusy, setProfileCoverBusy] = useState(false);
   const [profileCoverProgress, setProfileCoverProgress] = useState(0);
-  const [viewedFollowingUids, setViewedFollowingUids] = useState<string[]>([]);
-  const [viewedFollowerUids, setViewedFollowerUids] = useState<string[]>([]);
   const [profileTimelinePosts, setProfileTimelinePosts] = useState<PulsePost[]>([]);
   const [profileContentTab, setProfileContentTab] = useState<'Posts' | 'Videos' | 'Photos'>('Posts');
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -446,9 +451,13 @@ function App() {
     discoverShowAll: boolean;
     discoverSearch: string;
     notificationFilter: 'All' | 'Likes' | 'Comments' | 'Follows' | 'Mentions';
+    notificationSearch: string;
+    notificationUnreadOnly: boolean;
   } | null>(null);
   const profileTargetRef = useRef<PublicProfile | null>(null);
   const followBusyRef = useRef<Set<string>>(new Set());
+  const notificationSnapshotUidRef = useRef<string | null>(null);
+  const seenNotificationIdsRef = useRef<Set<string>>(new Set());
 
   const [viewedProfile, setViewedProfile] = useState<PublicProfile | null>(null);
   const [messageText, setMessageText] = useState('');
@@ -706,6 +715,8 @@ function App() {
         setDiscoverShowAll(origin.discoverShowAll);
         setDiscoverSearch(origin.discoverSearch);
         setNotificationFilter(origin.notificationFilter);
+        setNotificationSearch(origin.notificationSearch);
+        setNotificationUnreadOnly(origin.notificationUnreadOnly);
         return;
       }
 
@@ -767,6 +778,8 @@ function App() {
 
   useEffect(() => {
     if (!user) {
+      notificationSnapshotUidRef.current = null;
+      seenNotificationIdsRef.current = new Set();
       setProfile(null);
       setPeople([]);
       setFollowingUids([]);
@@ -829,8 +842,66 @@ function App() {
         subscriptions.push(
           watchNotifications(
             user.uid,
-            value => { if (active) setNotifications(value); },
-            err => { if (active) setError('Notifications: ' + err.message); },
+            value => {
+              if (!active) return;
+
+              // Establish a baseline on the first snapshot. Do not alert for
+              // notifications that already existed before this session.
+              if (notificationSnapshotUidRef.current !== user.uid) {
+                notificationSnapshotUidRef.current = user.uid;
+                seenNotificationIdsRef.current = new Set(
+                  value.map(notification => notification.id),
+                );
+                setNotifications(value);
+                return;
+              }
+
+              const seenIds = seenNotificationIdsRef.current;
+              const newlyReceived = value.filter(
+                notification => !seenIds.has(notification.id),
+              );
+
+              value.forEach(notification => seenIds.add(notification.id));
+              setNotifications(value);
+
+              // Best-effort alerts only while this page is backgrounded.
+              if (
+                newlyReceived.length > 0 &&
+                typeof Notification !== 'undefined' &&
+                Notification.permission === 'granted' &&
+                document.hidden
+              ) {
+                const activityText: Record<PulseNotification['type'], string> = {
+                  follow: 'started following you',
+                  like: 'liked your post',
+                  comment: 'commented on your post',
+                  mention: 'mentioned you',
+                  repost: 'reposted your post',
+                };
+
+                newlyReceived.slice(0, 3).forEach(item => {
+                  try {
+                    const alert = new Notification('New activity on PULSE', {
+                      body: `Someone ${activityText[item.type]}.`,
+                      icon: '/pulse-icon-192.png',
+                      tag: `pulse-activity-${item.id}`,
+                    });
+
+                    alert.onclick = () => {
+                      window.focus();
+                      setActiveTab('Activity');
+                      setActivitySection('Notifications');
+                      alert.close();
+                    };
+                  } catch {
+                    // Browser restrictions must not affect in-app alerts.
+                  }
+                });
+              }
+            },
+            err => {
+              if (active) setError('Notifications: ' + err.message);
+            },
           ),
         );
 
@@ -1122,36 +1193,25 @@ function App() {
     };
   }, [user, viewedProfile?.uid]);
 
-  useEffect(() => {
-    if (!viewedProfile || viewedProfile.uid === user?.uid) {
-      setViewedFollowingUids([]);
-      setViewedFollowerUids([]);
-      return;
-    }
-
-    let active = true;
-    const unsubscribeFollowing = watchFollowing(
-      viewedProfile.uid,
-      items => { if (active) setViewedFollowingUids(items); },
-      error => { if (active) setError('Profile following: ' + error.message); },
-    );
-    const unsubscribeFollowers = watchFollowers(
-      viewedProfile.uid,
-      items => { if (active) setViewedFollowerUids(items); },
-      error => { if (active) setError('Profile followers: ' + error.message); },
-    );
-
-    return () => {
-      active = false;
-      unsubscribeFollowing();
-      unsubscribeFollowers();
-    };
-  }, [viewedProfile?.uid, user?.uid]);
 
   useEffect(() => {
     setProfileContentTab('Posts');
     setRelationshipView(null);
   }, [viewedProfile?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setDismissedDiscoverUids([]);
+      setDiscoverRefreshIndex(0);
+      return;
+    }
+
+    return watchDiscoverDismissals(
+      user.uid,
+      setDismissedDiscoverUids,
+      error => setError('Discover preferences: ' + error.message),
+    );
+  }, [user?.uid]);
 
   const peopleByUid = useMemo(
     () => new Map([
@@ -1175,6 +1235,46 @@ function App() {
           Boolean(person && person.discoverable === true),
       );
   }, [peopleByUid, followerUids, followingUids, user?.uid]);
+
+  // Recommend across the discoverable member directory, not just followers.
+  // Followers are prioritised; followed, dismissed and self accounts are excluded.
+  const discoverRecommendations = useMemo(() => {
+    const excluded = new Set([
+      user?.uid ?? '',
+      ...followingUids,
+      ...dismissedDiscoverUids,
+    ]);
+    const followers = new Set(followerUids);
+
+    return people
+      .filter(person =>
+        person.discoverable === true && !excluded.has(person.uid),
+      )
+      .sort((a, b) => {
+        const followerPriority =
+          Number(followers.has(b.uid)) - Number(followers.has(a.uid));
+        if (followerPriority !== 0) return followerPriority;
+        return a.displayName.localeCompare(b.displayName);
+      });
+  }, [
+    people,
+    followingUids,
+    followerUids,
+    dismissedDiscoverUids,
+    user?.uid,
+  ]);
+
+  // Rotate the visible eight-member batch when Refresh is selected.
+  const visibleDiscoverRecommendations = useMemo(() => {
+    const count = discoverRecommendations.length;
+    if (count <= 8) return discoverRecommendations;
+
+    const start = (discoverRefreshIndex * 8) % count;
+    return [
+      ...discoverRecommendations.slice(start),
+      ...discoverRecommendations.slice(0, start),
+    ];
+  }, [discoverRecommendations, discoverRefreshIndex]);
 
   const newOnPulse = useMemo(() => {
     const suggestedUids = new Set(peopleYouMayKnow.map(person => person.uid));
@@ -1212,8 +1312,6 @@ function App() {
   ).length;
 
   const visibleNotifications = useMemo(() => {
-    if (notificationFilter === 'All') return notifications;
-
     const typeByFilter = {
       Likes: 'like',
       Comments: 'comment',
@@ -1221,10 +1319,47 @@ function App() {
       Mentions: 'mention',
     } as const;
 
-    return notifications.filter(
-      notification => notification.type === typeByFilter[notificationFilter],
-    );
-  }, [notifications, notificationFilter]);
+    const term = notificationSearch.trim().toLowerCase();
+
+    return notifications.filter(notification => {
+      if (
+        notificationFilter !== 'All' &&
+        notification.type !== typeByFilter[notificationFilter]
+      ) {
+        return false;
+      }
+
+      if (notificationUnreadOnly && notification.readAt != null) {
+        return false;
+      }
+
+      if (!term) return true;
+
+      const actor = peopleByUid.get(notification.actorUid);
+      const description = notification.type === 'follow'
+        ? 'started following you'
+        : notification.type === 'like'
+          ? 'liked your post'
+          : notification.type === 'comment'
+            ? 'commented on your post'
+            : notification.type === 'mention'
+              ? 'mentioned you'
+              : 'reposted your post';
+
+      return [
+        actor?.displayName,
+        actor?.username,
+        notification.type,
+        description,
+      ].some(value => value?.toLowerCase().includes(term));
+    });
+  }, [
+    notifications,
+    notificationFilter,
+    notificationSearch,
+    notificationUnreadOnly,
+    peopleByUid,
+  ]);
 
   const otherUid = (conversation: PulseConversation) =>
     conversation.participants.find(uid => uid !== user?.uid) ?? '';
@@ -1333,13 +1468,9 @@ function App() {
     [profilePosts, profileContentTab],
   );
 
-  const displayedFollowerUids = viewedProfile
-    ? viewedFollowerUids
-    : followerUids;
-
-  const displayedFollowingUids = viewedProfile
-    ? viewedFollowingUids
-    : followingUids;
+  // Relationship records are private: these lists belong to the signed-in member.
+  const displayedFollowerUids = followerUids;
+  const displayedFollowingUids = followingUids;
 
   const selectedConversation = conversations.find(
     conversation => conversation.id === selectedId,
@@ -1457,6 +1588,8 @@ function App() {
       discoverShowAll,
       discoverSearch,
       notificationFilter,
+      notificationSearch,
+      notificationUnreadOnly,
     };
     profileTargetRef.current = person;
 
@@ -3337,6 +3470,26 @@ function App() {
 
             {activitySection === 'Notifications' ? (
               <>
+                <label className="pulse-discover-search pulse-activity-search">
+                  <Search size={17} />
+                  <input
+                    type="search"
+                    value={notificationSearch}
+                    onChange={event => setNotificationSearch(event.target.value)}
+                    placeholder="Search notifications, people or activity"
+                    aria-label="Search notifications"
+                  />
+                  {notificationSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setNotificationSearch('')}
+                      aria-label="Clear notification search"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </label>
+
                 <div className="pulse-notification-toolbar">
                   <div className="pulse-notification-filters" aria-label="Filter notifications">
                     {(['All', 'Likes', 'Comments', 'Follows', 'Mentions'] as const).map(filter => (
@@ -3350,6 +3503,14 @@ function App() {
                         {filter}
                       </button>
                     ))}
+                    <button
+                      type="button"
+                      className={notificationUnreadOnly ? 'active' : ''}
+                      aria-pressed={notificationUnreadOnly}
+                      onClick={() => setNotificationUnreadOnly(value => !value)}
+                    >
+                      Unread
+                    </button>
                   </div>
                   <button
                     type="button"
@@ -3404,6 +3565,17 @@ function App() {
                               <small>{notificationDate(notification.createdAt)}</small>
                             </span>
                           </button>
+                          {notification.type === 'follow' && actor && (
+                            <button
+                              type="button"
+                              className={`pulse-follow-back-action${followingUids.includes(actor.uid) ? ' is-following' : ''}`}
+
+                              onClick={() => void toggleFollow(actor)}
+                            >
+                              <UserPlus size={14} />
+                              {followingUids.includes(actor.uid) ? 'Following' : 'Follow back'}
+                            </button>
+                          )}
                           {isUnread && <span className="pulse-notification-unread-dot" aria-label="Unread" />}
                         </article>
                       );
@@ -3433,7 +3605,27 @@ function App() {
               </>
             ) : (
               <div className="pulse-discover-panel">
-                {discoverShowAll ? (
+                <label className="pulse-discover-search pulse-activity-search">
+                  <Search size={17} />
+                  <input
+                    type="search"
+                    value={discoverSearch}
+                    onChange={event => setDiscoverSearch(event.target.value)}
+                    placeholder="Search by name or username"
+                    aria-label="Search PULSE members"
+                  />
+                  {discoverSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setDiscoverSearch('')}
+                      aria-label="Clear search"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </label>
+
+                {discoverShowAll || discoverSearch.trim().length > 0 ? (
                   <>
                     <div className="pulse-discover-intro">
                       <div>
@@ -3443,31 +3635,17 @@ function App() {
                       <button
                         type="button"
                         className="pulse-discover-text-action"
-                        onClick={() => window.history.back()}
+                        onClick={() => {
+                          if (discoverShowAll) {
+                            window.history.back();
+                          } else {
+                            setDiscoverSearch('');
+                          }
+                        }}
                       >
                         Back to Discover
                       </button>
                     </div>
-
-                    <label className="pulse-discover-search">
-                      <Search size={17} />
-                      <input
-                        type="search"
-                        value={discoverSearch}
-                        onChange={event => setDiscoverSearch(event.target.value)}
-                        placeholder="Search by name or username"
-                        aria-label="Search PULSE members"
-                      />
-                      {discoverSearch && (
-                        <button
-                          type="button"
-                          onClick={() => setDiscoverSearch('')}
-                          aria-label="Clear search"
-                        >
-                          <X size={16} />
-                        </button>
-                      )}
-                    </label>
 
                     {(() => {
                       const term = discoverSearch.trim().toLowerCase();
@@ -3501,9 +3679,11 @@ function App() {
                                 </button>
                                 <button
                                   type="button"
-                                  className={`pulse-profile-action${isFollowing ? '' : ' primary'}`}
+                                  className={`pulse-follow-back-action${isFollowing ? ' is-following' : ''}`}
+
                                   onClick={() => void toggleFollow(person)}
                                 >
+                                  {!isFollowing && <UserPlus size={14} />}
                                   {isFollowing ? 'Following' : followsYou ? 'Follow back' : 'Follow'}
                                 </button>
                               </article>
@@ -3534,14 +3714,29 @@ function App() {
                         <div>
                           <span className="pulse-discover-kicker">BUILD CONNECTIONS</span>
                           <h3>People you may know</h3>
-                          <p>Members who already follow you.</p>
+                          <p>People who follow you and other discoverable members.</p>
                         </div>
-                        <span className="pulse-discover-count">{peopleYouMayKnow.length}</span>
+                        <div className="pulse-discover-recommendation-tools">
+                          <span className="pulse-discover-count">
+                            {discoverRecommendations.length}
+                          </span>
+                          <button
+                            type="button"
+                            className="pulse-discover-refresh"
+                            onClick={() => setDiscoverRefreshIndex(value => value + 1)}
+                            disabled={discoverRecommendations.length < 2}
+                            aria-label="Refresh people suggestions"
+                            title="Refresh suggestions"
+                          >
+                            <RefreshCw size={15} />
+                            Refresh
+                          </button>
+                        </div>
                       </div>
 
-                      {peopleYouMayKnow.length > 0 ? (
+                      {discoverRecommendations.length > 0 ? (
                         <div className="pulse-discover-people-row">
-                          {peopleYouMayKnow.slice(0, 8).map(person => (
+                          {visibleDiscoverRecommendations.slice(0, 8).map(person => (
                             <article className="pulse-discover-person-tile" key={person.uid}>
                               <button
                                 type="button"
@@ -3553,14 +3748,34 @@ function App() {
                                 <Avatar name={person.displayName} photoURL={person.photoURL} />
                                 <strong>{person.displayName}</strong>
                                 <span>@{person.username}</span>
-                                <small>Follows you</small>
+                                <small>
+                                  {followerUids.includes(person.uid)
+                                    ? 'Follows you'
+                                    : 'Discoverable member'}
+                                </small>
                               </button>
                               <button
                                 type="button"
-                                className={`pulse-profile-action${followingUids.includes(person.uid) ? '' : ' primary'}`}
+                                className={`pulse-follow-back-action${followingUids.includes(person.uid) ? ' is-following' : ''}`}
+
                                 onClick={() => void toggleFollow(person)}
                               >
-                                {followingUids.includes(person.uid) ? 'Following' : 'Follow back'}
+                                {!followingUids.includes(person.uid) && <UserPlus size={14} />}
+                                {followingUids.includes(person.uid) ? 'Following' : 'Follow'}
+                              </button>
+                              <button
+                                type="button"
+                                className="pulse-discover-dismiss-action"
+                                title="Not interested"
+                                aria-label={`Dismiss ${person.displayName} suggestion`}
+                                onClick={() => {
+                                  void dismissDiscoverMember(user.uid, person.uid).catch(error => {
+                                    setError('Could not dismiss suggestion: ' + error.message);
+                                  });
+                                }}
+                              >
+                                <X size={15} />
+                                <span>Not interested</span>
                               </button>
                             </article>
                           ))}
@@ -3674,11 +3889,11 @@ function App() {
                       <span>Posts</span>
                     </div>
                     <div>
-                      <strong>{displayedFollowerUids.length}</strong>
+                      <strong>—</strong>
                       <span>Followers</span>
                     </div>
                     <div>
-                      <strong>{displayedFollowingUids.length}</strong>
+                      <strong>—</strong>
                       <span>Following</span>
                     </div>
                   </div>
@@ -3842,7 +4057,7 @@ function App() {
                 </div>
 
                 {relationshipView && (
-                  <div className="pulse-settings-card">
+                  <div className="pulse-profile-relationships">
                     <h3>{relationshipView === 'followers' ? 'Your followers' : 'People you follow'}</h3>
                     {(relationshipView === 'followers' ? displayedFollowerUids : displayedFollowingUids).map(uid => {
                       const person = relationshipProfiles[uid];
@@ -4030,7 +4245,14 @@ function App() {
             }}
             aria-current={activeTab === label ? 'page' : undefined}
           >
-            <Icon size={21} />
+            <span className="pulse-nav-icon-wrap">
+              <Icon size={21} />
+              {label === 'Activity' && unreadNotificationCount > 0 && (
+                <span className="pulse-nav-unread-badge">
+                  {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                </span>
+              )}
+            </span>
             <span>{label}</span>
           </button>
         ))}

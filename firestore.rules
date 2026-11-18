@@ -169,6 +169,24 @@ service cloud.firestore {
         allow update: if false;
       }
 
+      // Private Discover dismissal history belongs only to this account.
+      match /discoverDismissals/{targetUid} {
+        allow read: if isOwner(uid);
+
+        allow create, update: if isOwner(uid)
+          && targetUid != uid
+          && request.resource.data.keys().hasOnly([
+            'targetUid', 'dismissedAt'
+          ])
+          && request.resource.data.keys().hasAll([
+            'targetUid', 'dismissedAt'
+          ])
+          && request.resource.data.targetUid == targetUid
+          && request.resource.data.dismissedAt is timestamp;
+
+        allow delete: if isOwner(uid);
+      }
+
       // Per-member inbox preferences never modify shared conversations.
       match /conversationPreferences/{conversationId} {
         allow read: if isOwner(uid);
@@ -240,7 +258,16 @@ service cloud.firestore {
     // Follow relationships are visible only to their two participants.
     // The follower can create or remove their own relationship.
     match /followRelationships/{relationshipId} {
-      allow read: if signedIn()
+      // A missing deterministic relationship document may be checked.
+      // Existing relationship documents remain private to their participants.
+      allow get: if signedIn()
+        && (
+          resource == null
+          || request.auth.uid == resource.data.followerUid
+          || request.auth.uid == resource.data.followingUid
+        );
+
+      allow list: if signedIn()
         && (
           request.auth.uid == resource.data.followerUid
           || request.auth.uid == resource.data.followingUid
