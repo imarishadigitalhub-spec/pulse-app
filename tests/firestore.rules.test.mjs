@@ -315,3 +315,45 @@ test('reply to a nonexistent original message is rejected', async () => {
     },
   })));
 });
+
+
+test('Discover dismissals are private and writable only by their owner', async () => {
+  const ownDismissal = aliceDb.doc(
+    'users/alice/discoverDismissals/bob',
+  );
+
+  await assertSucceeds(
+    ownDismissal.set({
+      targetUid: 'bob',
+      dismissedAt: new Date(),
+    }),
+  );
+
+  await assertSucceeds(ownDismissal.get());
+
+  await assertFails(
+    bobDb.doc('users/alice/discoverDismissals/bob').get(),
+  );
+
+  await assertFails(
+    bobDb.doc('users/alice/discoverDismissals/charlie').set({
+      targetUid: 'charlie',
+      dismissedAt: new Date(),
+    }),
+  );
+
+  await assertFails(
+    ownDismissal.set({
+      targetUid: 'bob',
+      dismissedAt: new Date(),
+      unexpectedField: 'not-allowed',
+    }),
+  );
+
+  await assertFails(
+    aliceDb.doc('users/alice/discoverDismissals/alice').set({
+      targetUid: 'alice',
+      dismissedAt: new Date(),
+    }),
+  );
+});

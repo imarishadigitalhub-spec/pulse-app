@@ -1277,3 +1277,41 @@ export async function removeProfileCover(uid: string): Promise<void> {
     updatedAt: serverTimestamp(),
   });
 }
+
+
+/**
+ * Watches the signed-in member's private Discover dismissal records.
+ */
+export function watchDiscoverDismissals(
+  uid: string,
+  callback: (uids: string[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  if (!uid) throw new Error('Sign in to load Discover preferences.');
+
+  return onSnapshot(
+    collection(database(), 'users', uid, 'discoverDismissals'),
+    snapshot => callback(snapshot.docs.map(item => item.id)),
+    error => onError?.(error),
+  );
+}
+
+/**
+ * Saves a dismissed Discover suggestion in the current member's private data.
+ */
+export async function dismissDiscoverMember(
+  currentUid: string,
+  targetUid: string,
+): Promise<void> {
+  if (!currentUid || !targetUid || currentUid === targetUid) {
+    throw new Error('This Discover suggestion could not be dismissed.');
+  }
+
+  await setDoc(
+    doc(database(), 'users', currentUid, 'discoverDismissals', targetUid),
+    {
+      targetUid,
+      dismissedAt: serverTimestamp(),
+    },
+  );
+}
